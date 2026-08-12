@@ -1,0 +1,24 @@
+# 正式域名配置：安装 Caddy 后，把下面的域名换成你的真实域名。
+# 一键配置：bash scripts/caddy-setup.sh 你的域名（会自动生成本文件）
+# 手动配置：把本文件放到 /etc/caddy/Caddyfile 后执行 systemctl restart caddy
+
+zhuxu.example.com {
+    # 启用压缩
+    encode zstd gzip
+
+    # 转发到服务器本机的筑序服务（Docker 容器）
+    reverse_proxy 127.0.0.1:8080
+
+    # 安全响应头
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    # 访问日志（排查问题用）
+    log {
+        output file /var/log/caddy/zhuxu-access.log
+    }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "zhuxu-construction-efficiency",
+  "version": "1.0.0",
+  "private": true,
+  "description": "筑序施工效率驾驶舱本地与局域网演示版",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check app.js && node --check server.js && node --check server-bridge.js && node --check _test_app.js && node --check _test_new_features.js && node --check _test_lan.js && node --check _test_all.js",
+    "test": "node _test_all.js",
+    "test:offline": "node _test_app.js",
+    "test:features": "node _test_new_features.js",
+    "test:lan": "node _test_all.js --lan-only"
+  },
+  "devDependencies": {
+    "jszip": "3.10.1",
+    "playwright": "1.62.0"
+  }
+}

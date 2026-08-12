@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#173a59">
+  <title>筑序 · 施工效率驾驶舱</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="auth-pending">
+  <a class="skip-link" href="#main">跳到主要内容</a>
+
+  <section class="login-screen" id="loginScreen" aria-labelledby="loginTitle">
+    <div class="login-field-panel">
+      <div class="login-brand"><div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div><div><strong>筑序</strong><small>施工效率驾驶舱 · 正式版</small></div></div>
+      <div class="login-thesis">
+        <span>云河智造中心一期</span>
+        <h1>让每一道工序，沿责任链准时闭环。</h1>
+        <p>进度、任务、材料、资料、质量安全与组织架构统一协同，现场信息有来源、任务有责任人、节点有放行依据。</p>
+      </div>
+      <ol class="login-chain" aria-label="项目协同责任链">
+        <li><b>01</b><span>计划落位</span></li><li><b>02</b><span>责任到人</span></li><li><b>03</b><span>资料放行</span></li><li><b>04</b><span>现场闭环</span></li>
+      </ol>
+      <div class="login-edition"><i></i><span>项目内网使用</span><i></i><span>岗位权限受控</span></div>
+    </div>
+    <div class="login-form-panel">
+      <form class="login-form" id="loginForm" novalidate>
+        <div class="login-mobile-brand"><div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div><strong>筑序</strong></div>
+        <p class="login-eyebrow">项目账号登录</p>
+        <h2 id="loginTitle">进入施工协同平台</h2>
+        <p class="login-description">使用组织架构中登记的个人账号登录，系统将按账号职位加载任务和审批权限。</p>
+        <label>登录账号<input name="account" autocomplete="username" required placeholder="例如：chen.pm"></label>
+        <label>登录密码<div class="password-field"><input type="password" name="password" autocomplete="current-password" required placeholder="请输入密码"><button type="button" id="togglePassword" aria-label="显示密码">显示</button></div></label>
+        <div class="login-options"><label><input type="checkbox" name="remember"> 在本机保持登录</label><span>初始密码为登记手机号后六位</span></div>
+        <p class="login-error" id="loginError" role="alert" aria-live="polite"></p>
+        <button type="submit" class="login-submit">登录平台 <span>→</span></button>
+        <div class="login-help"><strong>首次登录</strong><p>请向项目管理员确认账号及登记手机号；正式部署后应在首次登录时修改密码。</p></div>
+        <small class="login-version">筑序 v1.0 · 本地正式演示版</small>
+      </form>
+    </div>
+  </section>
+
+  <div class="app-shell" id="appShell" aria-hidden="true">
+    <aside class="sidebar" id="sidebar" aria-label="主导航">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div><strong>筑序</strong><small>施工效率驾驶舱</small></div>
+      </div>
+
+      <nav class="nav-list">
+        <button class="nav-item active" data-view="dashboard"><span class="nav-icon">⌂</span><span>总览</span></button>
+        <button class="nav-item" data-view="schedule"><span class="nav-icon">▦</span><span>进度计划</span></button>
+        <button class="nav-item" data-view="tasks"><span class="nav-icon">✓</span><span>任务协同</span><b id="taskBadge">6</b></button>
+        <button class="nav-item" data-view="followups"><span class="nav-icon">↻</span><span>协作催办</span><b class="warn" id="followupBadge">3</b></button>
+        <button class="nav-item" data-view="materials"><span class="nav-icon">◇</span><span>材料设备</span></button>
+        <button class="nav-item" data-view="documents"><span class="nav-icon">▤</span><span>资料闭环</span><b class="warn" id="documentBadge">2</b></button>
+        <button class="nav-item" data-view="quality"><span class="nav-icon">◎</span><span>质量安全</span><b class="warn">3</b></button>
+        <button class="nav-item" data-view="team"><span class="nav-icon">♙</span><span>组织架构</span></button>
+        <button class="nav-item" data-view="analytics"><span class="nav-icon">↗</span><span>效率分析</span></button>
+      </nav>
+
+      <div class="site-weather">
+        <div class="weather-row"><span class="weather-icon">☀</span><div><strong>31°C</strong><small>晴 · 东南风 2级</small></div></div>
+        <p>未来 8 小时无降雨，适合外立面施工</p>
+      </div>
+
+      <div class="user-card" id="currentUserCard">
+        <div class="avatar" id="currentUserAvatar">陈</div>
+        <div><strong id="currentUserName">陈海峰</strong><small id="currentUserRole">项目经理</small></div>
+        <button type="button" id="accountSwitcherButton" aria-label="退出当前账号" title="退出当前账号">退出</button>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <button class="icon-button menu-button" id="menuButton" aria-label="打开菜单" aria-expanded="false">☰</button>
+        <button class="global-back-button" id="globalBackButton" aria-label="返回总览" title="返回总览"><span>←</span><b>返回</b></button>
+        <div class="project-switcher">
+          <span>当前项目</span>
+          <button id="projectButton">云河智造中心一期 <span>⌄</span></button>
+        </div>
+        <div class="topbar-actions">
+          <div class="sync-state"><i></i><span>数据已同步</span></div>
+          <button class="icon-button" id="exportButton" title="导出项目数据" aria-label="导出项目数据">⇩</button>
+          <button class="icon-button notification-button" id="notificationButton" aria-label="查看通知">♢<b>4</b></button>
+          <button class="primary-button" id="addTaskButton"><span>＋</span> 新建任务</button>
+        </div>
+      </header>
+
+      <main id="main">
+        <section class="view active" id="dashboard" aria-labelledby="dashboardTitle">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow" id="todayLabel"></p>
+              <h1 id="dashboardTitle">今天，先解决影响节点的事</h1>
+              <p>系统已从进度、资源和现场记录中筛出 3 个优先事项。</p>
+            </div>
+            <div class="heading-actions">
+              <button class="secondary-button" id="morningBriefButton">生成晨会简报</button>
+              <button class="primary-button" id="logButton">记录现场</button>
+            </div>
+          </div>
+
+          <div class="attention-strip" role="status">
+            <span class="pulse-dot"></span>
+            <strong>今日关注</strong>
+            <p>3#楼钢筋验收预计延迟 2 小时，可能影响 14:00 混凝土浇筑。</p>
+            <button id="focusIssueButton">查看处置建议 →</button>
+          </div>
+
+          <section class="process-card" aria-labelledby="processTitle">
+            <div class="section-heading">
+              <div><span class="section-index">01</span><div><h2 id="processTitle">施工流水线</h2><p>点击工序，查看当前节点与阻塞</p></div></div>
+              <div class="legend"><span><i class="done"></i>已完成</span><span><i class="current"></i>进行中</span><span><i class="risk"></i>有风险</span></div>
+            </div>
+            <div class="process-rail" id="processRail"></div>
+            <div class="stage-detail" id="stageDetail"></div>
+          </section>
+
+          <button class="document-strip" id="documentStrip" type="button" aria-label="查看资料完成情况">
+            <span class="document-strip-icon">▤</span>
+            <span class="document-strip-copy"><strong>资料完成情况</strong><small id="documentStripSummary">材料、送检、验收资料与施工进度同步核验</small></span>
+            <span class="document-strip-progress"><i id="documentStripBar"></i></span>
+            <strong class="document-strip-percent" id="documentStripPercent">78%</strong>
+            <span class="document-strip-alert" id="documentStripAlert">2 项待闭环</span>
+            <span class="document-strip-arrow">查看关联 →</span>
+          </button>
+
+          <section class="organization-strip" aria-labelledby="organizationTitle">
+            <div class="organization-heading"><span class="organization-icon">♙</span><div><strong id="organizationTitle">项目岗位责任链</strong><small>任务按账号职位自动匹配，生成后可人工调整</small></div></div>
+            <div class="organization-roles" id="organizationRoles"></div>
+            <button type="button" id="organizationButton">确认组织架构 →</button>
+          </section>
+
+          <section class="metric-grid" aria-label="项目关键指标">
+            <article class="metric-card">
+              <div class="metric-label"><span>总进度</span><em class="good">按计划</em></div>
+              <div class="metric-value">67.4<small>%</small></div>
+              <div class="progress-line"><i style="width:67.4%"></i></div>
+              <p>较基准计划 <strong>提前 1.2%</strong></p>
+            </article>
+            <article class="metric-card">
+              <div class="metric-label"><span>今日任务完成</span><em id="taskTotal">6 项</em></div>
+              <div class="metric-value" id="completionMetric">72<small>%</small></div>
+              <div class="segmented-progress" id="completionSegments"></div>
+              <p id="completionText">已完成 13 项，进行中 3 项</p>
+            </article>
+            <article class="metric-card">
+              <div class="metric-label"><span>现场投入</span><em>满负荷 86%</em></div>
+              <div class="metric-value">186<small>人</small></div>
+              <div class="resource-row"><span>设备 <strong>24/27</strong></span><span>班组 <strong>12</strong></span></div>
+              <p>木工班组较计划少 <strong class="orange">4 人</strong></p>
+            </article>
+            <article class="metric-card risk-card">
+              <div class="metric-label"><span>待闭环问题</span><em class="risk">需关注</em></div>
+              <div class="metric-value">7<small>项</small></div>
+              <div class="issue-totals"><span><i class="critical"></i>紧急 1</span><span><i class="medium"></i>一般 6</span></div>
+              <p>今日新增 2 项，已关闭 4 项</p>
+            </article>
+          </section>
+
+          <div class="content-grid">
+            <section class="panel task-panel" aria-labelledby="taskTitle">
+              <div class="panel-heading">
+                <div><span class="section-index">02</span><div><h2 id="taskTitle">今日任务</h2><p>按节点影响程度排序</p></div></div>
+                <button class="text-button" data-jump="tasks">全部任务 →</button>
+              </div>
+              <div class="task-filters" role="group" aria-label="任务筛选">
+                <button class="active" data-filter="all">全部</button>
+                <button data-filter="risk">有风险</button>
+                <button data-filter="doing">进行中</button>
+                <button data-filter="done">已完成</button>
+              </div>
+              <div class="task-list" id="taskList"></div>
+            </section>
+
+            <aside class="side-stack">
+              <section class="panel issue-panel" aria-labelledby="issueTitle">
+                <div class="panel-heading compact">
+                  <div><span class="section-index">03</span><div><h2 id="issueTitle">阻塞与预警</h2><p>按剩余处置时间排序</p></div></div>
+                  <button class="icon-button small" aria-label="更多预警">•••</button>
+                </div>
+                <div id="issueList"></div>
+              </section>
+
+              <section class="panel insight-panel" aria-labelledby="insightTitle">
+                <div class="insight-heading"><span class="spark">✦</span><div><h2 id="insightTitle">效率建议</h2><p>基于近 14 天施工数据</p></div></div>
+                <p>钢筋班组下午 15:00 后效率平均下降 18%。建议将 3#楼梁板绑扎提前至上午，并把材料吊运安排在 13:30 前完成。</p>
+                <div class="insight-impact"><span>预计节省</span><strong>4.5 工时 / 天</strong></div>
+                <button id="adoptInsightButton">采纳并调整计划</button>
+              </section>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view subview" id="schedule" aria-labelledby="scheduleTitle"></section>
+        <section class="view subview" id="tasks" aria-labelledby="tasksTitle"></section>
+        <section class="view subview" id="followups" aria-labelledby="followupsTitle"></section>
+        <section class="view subview" id="materials" aria-labelledby="materialsTitle"></section>
+        <section class="view subview" id="documents" aria-labelledby="documentsTitle"></section>
+        <section class="view subview" id="quality" aria-labelledby="qualityTitle"></section>
+        <section class="view subview" id="team" aria-labelledby="teamTitle"></section>
+        <section class="view subview" id="analytics" aria-labelledby="analyticsTitle"></section>
+      </main>
+    </div>
+  </div>
+
+  <div class="sidebar-scrim" id="sidebarScrim"></div>
+
+  <dialog id="taskDialog">
+    <form id="taskForm" method="dialog">
+      <div class="dialog-heading">
+        <div><span>新增现场任务</span><h2>把工作交到具体的人</h2></div>
+        <button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button>
+      </div>
+      <div class="intake-switcher" role="tablist" aria-label="任务录入方式">
+        <button type="button" class="active" data-task-intake="manual">手工录入</button>
+        <button type="button" data-task-intake="file">文件识别</button>
+        <button type="button" data-task-intake="voice">语音布置</button>
+      </div>
+      <section class="intake-panel" id="taskFilePanel" hidden>
+        <label class="import-dropzone" for="taskImportInput"><strong>导入 Word、PDF 或现场照片</strong><small>识别后先生成候选任务，由生产经理校对后分发</small></label>
+        <input class="visually-hidden" id="taskImportInput" type="file" accept=".doc,.docx,.pdf,image/*,.txt,.csv" multiple>
+        <div class="recognition-state" id="taskRecognitionState">尚未选择文件</div>
+      </section>
+      <section class="intake-panel" id="taskVoicePanel" hidden>
+        <button type="button" class="voice-button" id="voiceTaskButton"><span>●</span><strong>开始语音布置任务</strong></button>
+        <textarea id="voiceTranscript" rows="3" placeholder="语音识别文字会显示在这里，也可以直接输入或粘贴任务内容"></textarea>
+        <button type="button" class="secondary-button" id="parseVoiceButton">识别为任务</button>
+      </section>
+      <div class="recognition-candidates" id="taskRecognitionCandidates"></div>
+      <label>任务名称<input name="title" required maxlength="40" placeholder="例如：3#楼梁板钢筋验收"></label>
+      <div class="form-grid">
+        <label>施工区域<select name="zone"><option>3#楼</option><option>2#楼</option><option>地下室</option><option>室外工程</option></select></label>
+        <label>责任人<input name="owner" list="organizationOwners" required placeholder="按岗位自动匹配，可手工修改"><small class="match-hint" id="ownerMatchHint">输入任务后自动匹配岗位</small></label>
+      </div>
+      <datalist id="organizationOwners"></datalist>
+      <div class="form-grid">
+        <label>发起人 / 岗位<input name="creator" required value="陈工 · 项目经理" placeholder="例如：李工 · 资料员"></label>
+        <label>事项类型<select name="taskType"><option>施工任务</option><option>资料配合</option><option>质量整改</option><option>安全事项</option><option>协调事项</option></select></label>
+      </div>
+      <div class="form-grid">
+        <label>计划完成时间<input name="time" type="time" value="17:00" required></label>
+        <label>优先级<select name="priority"><option value="normal">一般</option><option value="risk">影响节点</option></select></label>
+      </div>
+      <label>验收标准<textarea name="criteria" rows="3" placeholder="描述完成条件，便于一次验收通过"></textarea></label>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">创建任务</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="planDialog">
+    <form id="planForm" method="dialog">
+      <div class="dialog-heading"><div><span>四级进度计划</span><h2>新建或导入计划</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="intake-switcher"><button type="button" class="active" data-plan-mode="manual">手工新建</button><button type="button" data-plan-mode="import">文件导入识别</button></div>
+      <section class="intake-panel" id="planImportPanel" hidden>
+        <label class="import-dropzone" for="planImportInput"><strong>导入 PDF、图片、Excel、Word 或 CSV</strong><small>系统提取工作名称和日期，识别结果可修改后写入计划</small></label>
+        <input class="visually-hidden" id="planImportInput" type="file" accept=".pdf,image/*,.xlsx,.xls,.csv,.docx,.txt">
+        <div class="recognition-state" id="planRecognitionState">尚未选择文件</div>
+      </section>
+      <div class="recognition-candidates" id="planRecognitionCandidates"></div>
+      <div class="form-grid"><label>计划层级<select name="level"><option value="master">总计划</option><option value="month">月计划</option><option value="week" selected>周计划</option><option value="day">日计划</option></select></label><label>责任岗位<select name="ownerRole"><option>生产经理</option><option>项目经理</option><option>土建工程师</option><option>机电工程师</option></select></label></div>
+      <label>工作名称<input name="title" required placeholder="例如：3#楼 9F 主体结构"></label>
+      <div class="form-grid"><label>开始日期<input type="date" name="start" required></label><label>完成日期<input type="date" name="end" required></label></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">更新计划</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="organizationDialog">
+    <form id="organizationForm" method="dialog">
+      <div class="dialog-heading"><div><span>账号与职位</span><h2>确认项目组织架构</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="dialog-description">系统按账号创建时登记的职位匹配任务责任人；调整后会影响后续自动分配。</p>
+      <div class="organization-editor" id="organizationEditor"></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存组织架构</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="resourceEntryDialog">
+    <form id="resourceEntryForm" method="dialog">
+      <div class="dialog-heading"><div><span id="resourceEntryEyebrow">材料进场登记</span><h2 id="resourceEntryTitle">登记材料到场</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <input type="hidden" name="resourceType" value="material">
+      <div class="form-grid"><label>名称<input name="name" required placeholder="例如：HRB400E 钢筋"></label><label>类别<select name="category" id="resourceCategory"></select></label></div>
+      <div class="form-grid"><label>品牌 / 生产厂家<input name="brand" required></label><label>规格 / 型号<input name="spec" required></label></div>
+      <div class="form-grid"><label>进出场类型<select name="movement"><option>进场</option><option>退场</option></select></label><label>到场时间<input type="datetime-local" name="arrivalTime" required></label></div>
+      <div class="form-grid"><label>数量<input name="quantity" required placeholder="例如：32.5 t / 1 台"></label><label>使用部位 / 安装位置<input name="location" required></label></div>
+      <label>关联材料设备计划<select name="planId" id="resourcePlanMatch"><option value="">系统自动匹配最接近的未完成计划</option></select><small class="match-hint" id="resourcePlanMatchHint">填写名称和使用部位后，系统会推荐对应计划；也可手动选择</small></label>
+      <label id="certificateLabel">合格证、检测报告或备案资料<input type="file" name="certificates" accept=".pdf,image/*" multiple></label>
+      <label>见证取样、验收或设备检查照片<input type="file" name="photos" accept="image/*" capture="environment" multiple></label>
+      <label>备注<textarea name="note" rows="2"></textarea></label>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存登记</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="resourcePlanDialog">
+    <form id="resourcePlanForm" method="dialog">
+      <div class="dialog-heading"><div><span>材料与设备计划</span><h2 id="resourcePlanDialogTitle">新增资源需求计划</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <input type="hidden" name="planId">
+      <div class="form-grid"><label>资源类型<select name="type"><option value="material">材料</option><option value="equipment">设备</option></select></label><label>名称<input name="name" required></label></div>
+      <div class="form-grid"><label>计划数量<input name="quantity" required></label><label>要求到场日期<input type="date" name="due" required></label></div>
+      <div class="form-grid"><label>使用部位<input name="location" required></label><label>责任岗位<select name="ownerRole" id="resourcePlanOwnerRole"></select></label></div>
+      <section class="resource-plan-material-fields" id="resourcePlanMaterialFields">
+        <div class="section-form-heading"><div><strong>合同品牌要求</strong><small>明确合同是否指定品牌，避免采购后再返审</small></div></div>
+        <div class="form-grid"><label>合同是否要求品牌<select name="contractBrandRequired"><option value="no">否</option><option value="yes">是</option></select></label><label id="contractBrandNameLabel" hidden>合同要求品牌名称<input name="contractBrand" placeholder="例如：沙钢、宝武；多个品牌用顿号分隔"></label></div>
+        <section class="approval-setup-panel">
+          <div class="section-form-heading"><div><strong>材料审批与采购流转</strong><small>按现场管理顺序逐级通知，项目经理通过后才向采购材料员开放</small></div><span>5 个节点 + 采购接收</span></div>
+          <div class="form-grid"><label>提出材料的人<select name="requester" required></select></label><label>生产经理<select name="productionApprover" required></select></label></div>
+          <div class="form-grid"><label>技术负责人<select name="technicalApprover" required></select></label><label>库管<select name="storekeeperApprover" required></select></label></div>
+          <div class="form-grid"><label>项目经理<select name="projectManagerApprover" required></select></label><label>采购材料员<select name="purchaser" required></select></label></div>
+          <label>材料审批表<input type="file" name="approvalFiles" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" multiple></label>
+          <div id="resourcePlanExistingApprovalFiles" class="approval-existing-files"></div>
+        </section>
+      </section>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存资源计划</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="resourceDetailDialog">
+    <form method="dialog">
+      <div class="dialog-heading"><div><span id="resourceDetailEyebrow">材料设备详情</span><h2 id="resourceDetailTitle">资源详情</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div id="resourceDetailBody" class="resource-detail-body"></div>
+      <div class="dialog-actions"><button type="button" class="primary-button" data-close-dialog>关闭</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="attachmentPreviewDialog">
+    <form method="dialog">
+      <div class="dialog-heading"><div><span>资料附件</span><h2 id="attachmentPreviewTitle">查看附件</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div id="attachmentPreviewBody" class="attachment-preview-body"></div>
+      <div class="dialog-actions"><a id="attachmentOpenLink" class="secondary-button attachment-open-link" target="_blank" rel="noopener">在新窗口打开</a><a id="attachmentDownloadLink" class="primary-button attachment-open-link" download>下载附件</a></div>
+    </form>
+  </dialog>
+
+  <dialog id="documentGateDialog">
+    <form id="documentGateForm" method="dialog">
+      <div class="dialog-heading">
+        <div><span>材料与工序资料条件核验</span><h2 id="gateDialogTitle">登记材料送检及报告</h2></div>
+        <button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button>
+      </div>
+      <div class="form-grid"><label>资料链<select id="gateChainSelect" name="chainKey"></select></label><label>关联材料进场批次<select id="gateMaterialEntry" name="materialEntryId"></select></label></div>
+      <div class="linked-material-summary" id="gateMaterialSummary">选择进场材料后自动带出品牌、规格和使用部位</div>
+      <div class="gate-chain" id="gateChain" aria-label="资料关联流程"></div>
+      <div class="gate-question">
+        <strong id="gateQuestion">本批钢筋送检结果是否合格？</strong>
+        <p id="gateContext">系统检测到当前工序使用的钢筋复试报告尚未闭环，请确认最新状态。</p>
+      </div>
+      <div class="gate-options" role="radiogroup" aria-label="送检结果">
+        <label><input type="radio" name="gateStatus" value="qualified" required><span><b>合格</b><small>允许关联工序继续</small></span></label>
+        <label><input type="radio" name="gateStatus" value="testing" required checked><span><b>送检中</b><small>保持工序待开始</small></span></label>
+        <label><input type="radio" name="gateStatus" value="failed" required><span><b>不合格</b><small>阻止施工并生成处置项</small></span></label>
+      </div>
+      <div class="form-grid"><label>见证取样 / 送检委托<input type="file" name="commissionFiles" accept=".pdf,image/*" multiple></label><label>检测报告 / 合格报告<input type="file" name="reportFiles" accept=".pdf,image/*" multiple></label></div>
+      <div class="gate-warning"><span>!</span><p id="gateWarningText">未取得合格报告前，不建议进入关联的下道工序。</p></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-gate-documents>查看资料链</button><button type="submit" class="primary-button" id="gateSubmitButton">确认状态</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="documentTaskDialog">
+    <form id="documentTaskForm" method="dialog">
+      <div class="dialog-heading"><div><span>资料任务清单</span><h2>查看并编辑资料任务</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <input type="hidden" name="categoryKey"><input type="hidden" name="documentId">
+      <label>资料名称<input name="name" required></label>
+      <div class="form-grid"><label>触发事件<input name="trigger" required></label><label>责任人<input name="owner" list="organizationOwners" required placeholder="按组织架构匹配，也可手工修改"></label></div>
+      <div class="form-grid"><label>完成时限<input name="due" required></label><label>任务状态<select name="status"><option value="pending">待办理</option><option value="testing">检测中</option><option value="done">已完成</option><option value="failed">不合格</option></select></label></div>
+      <div class="linked-material-summary" id="documentTaskMaterialSummary">未关联材料进场记录</div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存资料任务</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="materialAcceptanceDialog" class="wide-dialog">
+    <form id="materialAcceptanceForm" method="dialog">
+      <div class="dialog-heading"><div><span>材料进场验收资料包</span><h2 id="materialAcceptanceTitle">查看并编辑进场验收</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="dialog-description">同一批材料的质量证明、进场验收、见证取样委托和检测报告统一归档；系统按岗位匹配组织架构人员，也可逐项手工修改。</p>
+      <input type="hidden" name="categoryKey">
+      <div class="acceptance-material-summary" id="acceptanceMaterialSummary"></div>
+      <div class="acceptance-document-editor" id="acceptanceDocumentEditor"></div>
+      <section class="acceptance-upload-panel">
+        <div><strong>本批送检及报告附件</strong><small>原材料证明和进场照片来自材料台账，委托单及报告可在这里补充</small></div>
+        <div class="form-grid"><label>送检委托 / 见证取样<input type="file" name="commissionFiles" accept=".pdf,image/*" multiple></label><label>检测报告 / 合格报告<input type="file" name="reportFiles" accept=".pdf,image/*" multiple></label></div>
+        <div class="acceptance-existing-files" id="acceptanceExistingFiles"></div>
+      </section>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存进场验收资料</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="concealedAcceptanceDialog" class="wide-dialog">
+    <form id="concealedAcceptanceForm" method="dialog">
+      <div class="dialog-heading"><div><span>施工过程资料门禁</span><h2 id="concealedAcceptanceDialogTitle">新增隐蔽验收</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="dialog-description">隐蔽内容验收合格并上传验收资料、现场照片后，关联工序才可放行；记录可随时查看和编辑。</p>
+      <input type="hidden" name="acceptanceId">
+      <div class="form-grid"><label>隐蔽验收名称<input name="title" required placeholder="例如：3#楼8F梁板钢筋隐蔽验收"></label><label>隐蔽类型<select name="processType"><option>钢筋工程隐蔽</option><option>防水工程隐蔽</option><option>预留预埋隐蔽</option><option>管线工程隐蔽</option><option>保温工程隐蔽</option><option>其他隐蔽</option></select></label></div>
+      <div class="form-grid"><label>验收部位<input name="location" required></label><label>验收日期<input type="date" name="date" required></label></div>
+      <div class="form-grid"><label>验收负责人<input name="owner" list="organizationOwners" required></label><label>共同验收人<input name="witness" list="organizationOwners" required></label></div>
+      <div class="form-grid"><label>关联后续工序<input name="linkedProcess" required placeholder="例如：3#楼8F梁板混凝土浇筑"></label><label>验收结论<select name="status"><option value="pending">待验收</option><option value="qualified">验收合格</option><option value="failed">验收不合格</option></select></label></div>
+      <div class="form-grid"><label>隐蔽验收资料<input type="file" name="documentFiles" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" multiple></label><label>隐蔽现场照片<input type="file" name="photoFiles" accept="image/*" capture="environment" multiple></label></div>
+      <div id="concealedExistingFiles" class="concealed-existing-files"></div>
+      <label>验收意见与隐蔽内容说明<textarea name="conclusion" rows="3" placeholder="记录验收标准、实测情况、处理意见及复验结论"></textarea></label>
+      <div class="concealed-gate-hint" id="concealedGateHint"></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存隐蔽验收</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="qualityCheckDialog">
+    <form id="qualityCheckForm" method="dialog">
+      <div class="dialog-heading"><div><span>质量安全检查</span><h2 id="qualityCheckDialogTitle">新增检查记录</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <input type="hidden" name="checkId">
+      <div class="form-grid"><label>检查类型<select name="type"><option value="quality">质量检查</option></select></label><label>检查日期<input type="date" name="date" required></label></div>
+      <label>检查或整改内容<input name="title" required placeholder="例如：3#楼8F梁板钢筋间距偏差"></label>
+      <div class="form-grid"><label>区域 / 部位<input name="location" required></label><label>责任人<input name="owner" list="organizationOwners" required placeholder="按组织架构自动匹配，可手工修改"></label></div>
+      <div class="form-grid"><label>整改期限<input type="date" name="due" required></label><label>闭环状态<select name="status"><option value="pending">待整改</option><option value="rectifying">整改中</option><option value="closed">已闭环</option></select></label></div>
+      <label>检查记录或巡检表<input type="file" name="recordFiles" accept=".pdf,image/*" multiple></label>
+      <div class="form-grid"><label>整改前照片<input type="file" name="beforePhotos" accept="image/*" multiple></label><label>整改后照片<input type="file" name="afterPhotos" accept="image/*" multiple></label></div>
+      <div class="existing-check-attachments" id="qualityExistingAttachments"></div>
+      <label>复验意见<textarea name="note" rows="2" placeholder="整改措施、复验结果或未闭环原因"></textarea></label>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存检查记录</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="inspectionBatchDialog" class="wide-dialog">
+    <form id="inspectionBatchForm" method="dialog">
+      <div class="dialog-heading"><div><span>安全巡检主记录</span><h2 id="inspectionBatchDialogTitle">新增安全巡检</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="dialog-description">一次巡检可登记多个问题。整改通知单和统一整改回复保存在主记录，每个问题作为子项逐一记录整改内容、责任人及整改前后照片。</p>
+      <input type="hidden" name="inspectionId">
+      <div class="form-grid"><label>巡检名称<input name="title" required placeholder="例如：3#楼临边防护专项巡检"></label><label>巡检日期<input type="date" name="date" required></label></div>
+      <div class="form-grid"><label>巡检区域<input name="location" required></label><label>巡检负责人<input name="inspector" list="organizationOwners" required></label></div>
+      <label>巡检记录 / 检查表<input type="file" name="recordFiles" accept=".pdf,image/*" multiple></label>
+      <section class="unified-rectification-panel">
+        <div><strong>统一整改回复</strong><small>主记录统一上传整改通知单及整改回复，各问题在下方逐项闭环</small></div>
+        <div class="form-grid"><label>整改通知单<input type="file" name="noticeFiles" accept=".pdf,image/*" multiple></label><label>整改回复单<input type="file" name="replyFiles" accept=".pdf,image/*" multiple></label></div>
+        <label>统一回复说明<textarea name="unifiedReply" rows="3" placeholder="说明本次巡检整改组织、完成情况及统一复验结论"></textarea></label>
+        <div class="inspection-main-attachments" id="inspectionMainAttachments"></div>
+      </section>
+      <div class="inspection-issues-heading"><div><strong>逐一整改子项</strong><small>每个子项可自动匹配组织架构责任人，也可手工修改</small></div><button type="button" class="secondary-button" id="addInspectionIssueButton">＋ 添加问题</button></div>
+      <div class="inspection-issue-editor" id="inspectionIssueEditor"></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存巡检及整改</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="attendanceDialog">
+    <form id="attendanceForm" method="dialog">
+      <div class="dialog-heading"><div><span>劳务实名制</span><h2>登记每日现场考勤</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="form-grid"><label>考勤日期<input type="date" name="date" required></label><label>劳资员<input name="officer" list="organizationOwners" required value="劳资员"></label></div>
+      <div class="form-grid"><label>实际打卡人数<input type="number" name="actual" min="0" required></label><label>计划投入人数<input type="number" name="planned" min="0" required></label></div>
+      <label>上传打卡情况表<input type="file" name="attendanceFile" accept=".xlsx,.xls,.csv,.pdf,image/*" required></label>
+      <label>备注<textarea name="note" rows="2"></textarea></label>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存考勤</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="attendanceHistoryDialog" class="wide-dialog">
+    <form method="dialog">
+      <div class="dialog-heading"><div><span>劳务实名制档案</span><h2>往期每日考勤</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="dialog-description">按日期查看每日实际打卡人数、计划投入、考勤纪律及劳资员上传的原始考勤表。</p>
+      <div id="attendanceHistoryBody"></div>
+      <div class="dialog-actions"><button type="button" class="primary-button" data-close-dialog>关闭</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="attendanceSupplementDialog">
+    <form id="attendanceSupplementForm" method="dialog">
+      <div class="dialog-heading"><div><span>考勤核对补录</span><h2>补充核对信息</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <input type="hidden" name="recordId">
+      <div class="supplement-deadline" id="supplementDeadline"></div>
+      <div class="form-grid"><label>考勤日期<input name="date" readonly></label><label>核对人<input name="operator" list="organizationOwners" required></label></div>
+      <div class="form-grid"><label>补录后实际人数<input type="number" name="actual" min="0" required></label><label>计划投入人数<input type="number" name="planned" min="0" required></label></div>
+      <label>补录或更正原因<textarea name="reason" rows="3" required placeholder="例如：3名新进人员人脸信息延迟同步，现已核对补录"></textarea></label>
+      <label>补录依据附件<input type="file" name="supplementFile" accept=".xlsx,.xls,.csv,.pdf,image/*" required></label>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存核对补录</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="followupDialog">
+    <form id="followupForm" method="dialog">
+      <div class="dialog-heading">
+        <div><span>跨岗位协作</span><h2>催促相关负责人</h2></div>
+        <button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button>
+      </div>
+      <div class="form-grid">
+        <label>催办类型<select name="category"><option value="资料催办">资料催办</option><option value="工序催办">工序催办</option><option value="现场配合">现场配合</option></select></label>
+        <label>相关区域<select name="zone"><option>3#楼</option><option>2#楼</option><option>地下室</option><option>室外工程</option><option>项目部</option></select></label>
+      </div>
+      <label>需要对方完成的事项<input name="title" required maxlength="60" placeholder="例如：提供本批钢筋材料合格证"></label>
+      <div class="form-grid">
+        <label>发起人<input name="requester" required value="李工 · 资料员"></label>
+        <label>责任人<input name="owner" required placeholder="姓名、岗位或班组"></label>
+      </div>
+      <div class="form-grid">
+        <label>要求完成时间<input name="due" type="datetime-local" required></label>
+        <label>关联任务<input name="relatedTask" placeholder="影响到的资料或施工任务"></label>
+      </div>
+      <fieldset class="urgency-fieldset">
+        <legend>紧急程度</legend>
+        <div class="urgency-options">
+          <label><input type="radio" name="urgency" value="urgent" required><span><b>紧急</b><small>影响今日节点，立即提醒</small></span></label>
+          <label><input type="radio" name="urgency" value="normal" required checked><span><b>一般</b><small>按要求时间完成</small></span></label>
+        </div>
+      </fieldset>
+      <label>补充说明<textarea name="note" rows="3" placeholder="说明需要提供的文件、现场条件或对后续工作的影响"></textarea></label>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">发起催办</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="logDialog">
+    <form id="logForm" method="dialog">
+      <div class="dialog-heading"><div><span>移动端快速记录</span><h2>现场发生了什么？</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="record-types" role="group">
+        <label><input type="radio" name="type" value="进度" checked><span>进度</span></label>
+        <label><input type="radio" name="type" value="质量"><span>质量</span></label>
+        <label><input type="radio" name="type" value="安全"><span>安全</span></label>
+        <label><input type="radio" name="type" value="物料"><span>物料</span></label>
+      </div>
+      <label>现场记录<textarea name="content" rows="5" required placeholder="例如：3#楼 8F 梁板钢筋已完成自检，等待监理验收"></textarea></label>
+      <div class="photo-field">
+        <div class="field-label"><span>现场照片</span><small id="photoSelectionState">支持拍照或从相册选择，最多 9 张</small></div>
+        <label class="photo-dropzone" for="photoInput">
+          <span class="camera-mark" aria-hidden="true">▣</span>
+          <strong>添加现场照片</strong>
+          <small>照片将在本机压缩并保存</small>
+        </label>
+        <input class="visually-hidden" id="photoInput" type="file" accept="image/*" capture="environment" multiple>
+        <div class="photo-preview" id="photoPreview" aria-live="polite"></div>
+      </div>
+      <section class="recent-records" aria-labelledby="recentRecordsTitle">
+        <div class="recent-records-heading"><strong id="recentRecordsTitle">最近记录</strong><span id="recordStorageState">保存在本机</span></div>
+        <div id="recentRecordsList"><p class="records-empty">还没有现场记录</p></div>
+      </section>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存记录</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="vendor/jszip.min.js"></script>
+  <script src="server-bridge.js"></script>
+</body>
+</html>

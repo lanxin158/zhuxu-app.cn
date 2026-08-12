@@ -1,0 +1,24 @@
+services:
+  zhuxu:
+    build:
+      context: ../..
+      dockerfile: deploy/aliyun/Dockerfile
+    image: zhuxu:latest
+    container_name: zhuxu
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ZHUXU_HOST: 0.0.0.0
+      ZHUXU_PORT: "8080"
+      ZHUXU_DB_PATH: /data/zhuxu-lan.sqlite
+      ZHUXU_UPLOAD_DIR: /data/uploads
+    volumes:
+      - ./data:/data
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
