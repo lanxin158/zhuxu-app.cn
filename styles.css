@@ -255,6 +255,16 @@ dialog label { display: grid; gap: 7px; margin-bottom: 15px; color: #526470; fon
 
 .nav-item.access-locked { color: #92aabb; }.nav-item.access-locked .nav-icon { color: #ffd18e; }.nav-item.access-locked b { color: #704b16; background: #ffe1a7; font-size: 7px; }.nav-item.access-locked:hover { color: white; }.cost-access-dialog { width: min(500px,calc(100vw - 30px)); }.cost-access-lock { display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 14px; padding: 16px; border: 1px solid #dccba9; border-radius: 10px; background: #fffaf0; }.cost-access-lock > span { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 12px; color: #173a59; background: #ffd18e; font: 700 23px Consolas,monospace; }.cost-access-lock strong { font-size: 11px; }.cost-access-lock p { margin: 6px 0 0; color: var(--muted); font-size: 9px; line-height: 1.65; }.cost-restricted-state { display: grid; justify-items: center; gap: 8px; padding: 60px 20px; border: 1px solid #dccba9; border-radius: 12px; background: #fffaf0; text-align: center; }.cost-restricted-state > span { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; color: #173a59; background: #ffd18e; font: 700 22px Consolas,monospace; }.cost-restricted-state strong { font-size: 13px; }.cost-restricted-state p { margin: 0; color: var(--muted); font-size: 9px; }
 
+.password-policy-hint { margin: -5px 0 0; color: var(--muted); font-size: 8px; line-height: 1.6; }
+.account-policy-note { margin: -2px 0 0; padding: 10px 12px; border-left: 3px solid var(--orange); border-radius: 7px; color: #76583f; background: var(--orange-soft); font-size: 8px; line-height: 1.65; }
+.account-manage-panel { margin-top: 14px; padding: 17px; border: 1px solid var(--line); border-radius: 11px; background: white; box-shadow: var(--shadow); }
+.account-manage-table { overflow: hidden; border: 1px solid var(--line); border-radius: 9px; }
+.account-row { display: grid; grid-template-columns: minmax(150px,1.2fr) .8fr .9fr .6fr auto; align-items: center; gap: 12px; min-height: 52px; padding: 8px 13px; border-top: 1px solid #e7edef; font-size: 8px; }.account-row:first-child { border-top: 0; }.account-row:nth-child(even) { background: #f8fafb; }
+.account-row > span > b, .account-row > span > small { display: block; }.account-row > span > b { font-size: 9px; }.account-row > span > small { margin-top: 3px; color: var(--muted); font-size: 7px; }
+.account-state { display: inline-flex; width: fit-content; padding: 3px 7px; border-radius: 5px; color: var(--green); background: var(--green-soft); font-size: 7px; font-weight: 700; }.account-state.pending { color: var(--orange); background: var(--orange-soft); }.account-state.disabled { color: var(--muted); background: #edf1f3; }
+.account-actions { display: flex; gap: 5px; }.account-actions button { min-height: 27px; padding: 0 8px; border: 1px solid #b8c9d3; border-radius: 5px; color: var(--blue-2); background: white; cursor: pointer; font-size: 7px; font-weight: 700; }.account-actions button:hover { border-color: var(--blue-2); background: var(--blue-soft); }
+.management-permission-note { margin-top: 8px; color: var(--muted); font-size: 8px; line-height: 1.6; }
+
 .toast { position: fixed; right: 24px; bottom: 24px; z-index: 100; max-width: 360px; padding: 12px 16px; border-radius: 8px; color: white; background: #173a59; box-shadow: 0 10px 35px rgba(0,0,0,.2); font-size: 12px; transform: translateY(30px); opacity: 0; pointer-events: none; transition: .25s ease; }.toast.show { transform: none; opacity: 1; }
 .sidebar-scrim { display: none; }
 
@@ -302,5 +312,8 @@ dialog label { display: grid; gap: 7px; margin-bottom: 15px; color: #526470; fon
 }
 @media (max-width: 760px) {
   .daily-plan-group > summary { grid-template-columns: 36px minmax(0,1fr) 20px; gap: 9px; min-height: 62px; padding: 9px 10px; }.daily-plan-date-mark { width: 34px; height: 34px; font-size: 13px; }.daily-plan-group-stats { grid-column: 2; justify-self: start; gap: 8px; }.daily-plan-group-stats span:nth-child(2) { display: none; }.daily-plan-group summary > i { grid-column: 3; grid-row: 1 / span 2; }
+}
+@media (max-width: 620px) {
+  .account-row { grid-template-columns: minmax(0,1fr) auto; gap: 6px 10px; padding: 10px 12px; }.account-actions { grid-column: 1 / -1; flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }

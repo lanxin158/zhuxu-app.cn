@@ -39,7 +39,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY, account TEXT NOT NULL UNIQUE, name TEXT NOT NULL, role TEXT NOT NULL,
     phone TEXT NOT NULL, scope TEXT NOT NULL DEFAULT '', password_salt TEXT NOT NULL, password_hash TEXT NOT NULL,
-    enabled INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL
+    enabled INTEGER NOT NULL DEFAULT 1, must_change_password INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires_at INTEGER NOT NULL,
@@ -54,6 +54,8 @@ db.exec(`
     detail_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL
   );
 `);
+const userColumns = db.prepare('PRAGMA table_info(users)').all().map(row => row.name);
+if (!userColumns.includes('must_change_password')) db.exec('ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0');
 
 const defaultUsers = [
   ['pm', 'chen.pm', '陈海峰', '项目经理', '138 0000 1001', '项目统筹与重大协调'],
@@ -87,8 +89,8 @@ function verifyPassword(password, salt, expectedHex) {
 }
 
 const insertUser = db.prepare(`INSERT OR IGNORE INTO users
-  (id, account, name, role, phone, scope, password_salt, password_hash, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  (id, account, name, role, phone, scope, password_salt, password_hash, must_change_password, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`);
 for (const [id, account, name, role, phone, scope] of defaultUsers) {
   const password = passwordRecord(phonePassword(phone));
   insertUser.run(id, account, name, role, phone, scope, password.salt, password.hash, nowIso());
@@ -113,7 +115,37 @@ async function readJson(req) {
   });
 }
 function canAccessCost(user) { return Boolean(user && COST_ROLE_PATTERN.test(String(user.role || ''))); }
-function publicUser(user) { return user && { id: user.id, account: user.account, name: user.name, role: user.role, phone: user.phone, scope: user.scope, permissions: { cost: canAccessCost(user) } }; }
+function mustChangePending(user) { return Boolean(user && user.must_change_password === 1); }
+function isProjectManager(user) { return Boolean(user && /项目经理/.test(String(user.role || ''))); }
+function publicUser(user) { return user && { id: user.id, account: user.account, name: user.name, role: user.role, phone: user.phone, scope: user.scope, permissions: { cost: canAccessCost(user) }, mustChangePassword: mustChangePending(user) }; }
+const STATE_WRITE_ROLES = {
+  'zhuxu-organization': ['项目经理'],
+  'zhuxu-attendance': ['劳资员', '项目经理']
+};
+function canWriteStateKey(user, key) {
+  const allowedRoles = STATE_WRITE_ROLES[key];
+  if (!allowedRoles) return true;
+  return allowedRoles.some(role => String(user.role || '').includes(role));
+}
+function requireChangedUser(user, res) {
+  if (mustChangePending(user)) { audit(user.id, 'permission_denied', 'must-change-password'); sendJson(res, 403, { error: '请先修改初始密码后再继续操作' }); return false; }
+  return true;
+}
+function requireProjectManager(user, res) {
+  if (!isProjectManager(user)) { audit(user.id, 'permission_denied', 'account-management'); sendJson(res, 403, { error: '仅项目经理可管理项目账号' }); return false; }
+  return true;
+}
+function passwordPolicyError(password) {
+  const value = String(password || '');
+  if (value.length < 8) return '新密码至少 8 位';
+  if (!/\p{L}/u.test(value) || !/\p{N}/u.test(value)) return '新密码必须同时包含字母和数字';
+  return null;
+}
+function getState(key) {
+  const row = db.prepare('SELECT value_json FROM project_state WHERE state_key = ?').get(key);
+  if (!row) return null;
+  try { return JSON.parse(row.value_json); } catch { return null; }
+}
 function stateSnapshot(user) {
   const result = {};
   for (const row of db.prepare('SELECT state_key, value_json FROM project_state').all()) {
@@ -285,6 +317,98 @@ async function handleApi(req, res, url) {
   }
   const user = requireUser(req, res);
   if (!user) return;
+  if (req.method === 'POST' && url.pathname === '/api/password/change') {
+    const body = await readJson(req);
+    const currentPassword = String(body.currentPassword || '');
+    const newPassword = String(body.newPassword || '');
+    if (!verifyPassword(currentPassword, user.password_salt, user.password_hash)) {
+      audit(user.id, 'password_change_failed', user.account, { reason: 'wrong_current' });
+      return sendJson(res, 400, { error: '当前密码不正确' });
+    }
+    const policyError = passwordPolicyError(newPassword);
+    if (policyError) return sendJson(res, 400, { error: policyError });
+    if (currentPassword === newPassword) return sendJson(res, 400, { error: '新密码不能与当前密码相同' });
+    const record = passwordRecord(newPassword);
+    db.prepare('UPDATE users SET password_salt = ?, password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?').run(record.salt, record.hash, nowIso(), user.id);
+    const currentTokenHash = crypto.createHash('sha256').update(parseCookies(req).zhuxu_session || '').digest('hex');
+    db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(user.id, currentTokenHash);
+    audit(user.id, 'password_changed', user.account);
+    return sendJson(res, 200, { ok: true });
+  }
+  if (req.method === 'GET' && url.pathname === '/api/accounts') {
+    if (!requireChangedUser(user, res) || !requireProjectManager(user, res)) return;
+    const accounts = db.prepare('SELECT id, account, name, role, phone, scope, enabled, must_change_password AS mustChangePassword, updated_at AS updatedAt FROM users ORDER BY enabled DESC, role, name').all();
+    return sendJson(res, 200, { accounts });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/accounts') {
+    if (!requireChangedUser(user, res) || !requireProjectManager(user, res)) return;
+    const body = await readJson(req);
+    const name = String(body.name || '').trim();
+    const role = String(body.role || '').trim();
+    const account = String(body.account || '').trim().toLowerCase();
+    const phone = String(body.phone || '').trim();
+    const scope = String(body.scope || '').trim();
+    if (!name || !role || !account) return sendJson(res, 400, { error: '姓名、岗位和登录账号为必填项' });
+    if (!/^[a-z0-9._-]{3,}$/.test(account)) return sendJson(res, 400, { error: '登录账号仅支持小写字母、数字、点、下划线和连字符' });
+    if (db.prepare('SELECT id FROM users WHERE lower(account) = ?').get(account)) return sendJson(res, 409, { error: '登录账号已存在' });
+    const phoneDigits = phone.replace(/\D/g, '');
+    if (phoneDigits.length < 6) return sendJson(res, 400, { error: '手机号需至少包含 6 位数字（后六位将作为初始密码）' });
+    const id = 'acct-' + crypto.randomBytes(8).toString('hex');
+    const password = passwordRecord(phoneDigits.slice(-6));
+    db.prepare('INSERT INTO users (id, account, name, role, phone, scope, password_salt, password_hash, enabled, must_change_password, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?)').run(id, account, name, role, phone, scope, password.salt, password.hash, nowIso());
+    const organizationState = getState('zhuxu-organization');
+    if (Array.isArray(organizationState) && !organizationState.some(person => String(person.id) === id)) {
+      organizationState.push({ id, name, role, account, phone, scope });
+      setState('zhuxu-organization', organizationState, user.id);
+    }
+    audit(user.id, 'account_created', id, { account, name, role });
+    return sendJson(res, 200, { ok: true, account: { id, account, name, role, phone, scope, enabled: 1, mustChangePassword: true } });
+  }
+  const accountUpdateMatch = url.pathname.match(/^\/api\/accounts\/([^/]+)$/);
+  if (req.method === 'PUT' && accountUpdateMatch) {
+    if (!requireChangedUser(user, res) || !requireProjectManager(user, res)) return;
+    const target = db.prepare('SELECT * FROM users WHERE id = ?').get(decodeURIComponent(accountUpdateMatch[1]));
+    if (!target) return sendJson(res, 404, { error: '账号不存在' });
+    const body = await readJson(req);
+    const update = {};
+    if (body.name !== undefined) {
+      const value = String(body.name).trim();
+      if (!value) return sendJson(res, 400, { error: '姓名不能为空' });
+      update.name = value;
+    }
+    if (body.role !== undefined) {
+      const value = String(body.role).trim();
+      if (!value) return sendJson(res, 400, { error: '岗位不能为空' });
+      update.role = value;
+    }
+    if (body.phone !== undefined) {
+      const value = String(body.phone).trim();
+      if (value.replace(/\D/g, '').length < 6) return sendJson(res, 400, { error: '手机号需至少包含 6 位数字' });
+      update.phone = value;
+    }
+    if (body.scope !== undefined) update.scope = String(body.scope).trim();
+    if (body.enabled !== undefined) update.enabled = body.enabled ? 1 : 0;
+    let resetPassword = false;
+    if (body.resetPassword) {
+      const digits = String(update.phone || target.phone).replace(/\D/g, '');
+      const password = passwordRecord(digits.slice(-6));
+      update.password_salt = password.salt;
+      update.password_hash = password.hash;
+      update.must_change_password = 1;
+      resetPassword = true;
+    }
+    if (Object.keys(update).length === 0) return sendJson(res, 400, { error: '没有需要更新的内容' });
+    update.updated_at = nowIso();
+    const columns = Object.keys(update).map(key => `${key} = ?`).join(', ');
+    db.prepare(`UPDATE users SET ${columns} WHERE id = ?`).run(...Object.values(update), target.id);
+    if (resetPassword) db.prepare('DELETE FROM sessions WHERE user_id = ?').run(target.id);
+    const organizationState = getState('zhuxu-organization');
+    if (Array.isArray(organizationState)) {
+      setState('zhuxu-organization', organizationState.map(person => String(person.id) === String(target.id) ? { ...person, name: update.name ?? person.name, role: update.role ?? person.role, phone: update.phone ?? person.phone, scope: update.scope ?? person.scope } : person), user.id);
+    }
+    audit(user.id, resetPassword ? 'account_password_reset' : 'account_updated', target.id, { account: target.account, ...(update.enabled !== undefined ? { enabled: update.enabled } : {}), resetPassword });
+    return sendJson(res, 200, { ok: true });
+  }
   if (req.method === 'POST' && url.pathname === '/api/attachments') return handleAttachmentUpload(req, res, user);
   const attachmentGet = url.pathname.match(/^\/api\/attachments\/([^/]+)$/);
   if (req.method === 'GET' && attachmentGet) return handleAttachmentDownload(req, res, user, decodeURIComponent(attachmentGet[1]));
@@ -292,7 +416,9 @@ async function handleApi(req, res, url) {
   if (req.method === 'PUT' && stateMatch) {
     const key = decodeURIComponent(stateMatch[1]);
     if (!SHARED_KEYS.has(key)) return sendJson(res, 400, { error: '不支持的共享数据类型' });
+    if (!requireChangedUser(user, res)) return;
     if (key === COST_STATE_KEY && !canAccessCost(user)) { audit(user.id, 'permission_denied', COST_STATE_KEY); return sendJson(res, 403, { error: '当前岗位无成控文件读写权限' }); }
+    if (!canWriteStateKey(user, key)) { audit(user.id, 'permission_denied', key); return sendJson(res, 403, { error: '当前岗位无此数据写入权限' }); }
     const body = await readJson(req);
     setState(key, body.value, user.id);
     if (key === 'zhuxu-organization' && Array.isArray(body.value)) {
@@ -304,6 +430,7 @@ async function handleApi(req, res, url) {
   }
   const approvalMatch = url.pathname.match(/^\/api\/approvals\/([^/]+)\/(\d+)$/);
   if (req.method === 'POST' && approvalMatch) {
+    if (!requireChangedUser(user, res)) return;
     const body = await readJson(req); const action = body.action;
     if (!['approve', 'reject'].includes(action)) return sendJson(res, 400, { error: '审批动作无效' });
     const row = db.prepare('SELECT value_json FROM project_state WHERE state_key = ?').get('zhuxu-resource-plans');

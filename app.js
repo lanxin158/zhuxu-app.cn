@@ -359,12 +359,14 @@ const RECORD_DB_NAME = 'zhuxu-site-records';
 const RECORD_STORE_NAME = 'records';
 const RESOURCE_ATTACHMENT_STORE_NAME = 'resource-attachments';
 let activeAttachmentUrl = null;
+let mustChangePassword = false;
+let serverAccounts = [];
 
 const $ = (selector, context = document) => context.querySelector(selector);
 const $$ = (selector, context = document) => [...context.querySelectorAll(selector)];
 
 function syncServerState(key, value) {
-  if (!window.ZhuxuServer?.active || !authenticatedUserId) return;
+  if (!window.ZhuxuServer?.active || !authenticatedUserId || mustChangePassword) return;
   window.ZhuxuServer.saveState(key, value).then(() => {
     $('.sync-state span') && ($('.sync-state span').textContent = '局域网数据已同步');
     $('.sync-state i')?.classList.remove('offline');
@@ -372,6 +374,12 @@ function syncServerState(key, value) {
     $('.sync-state span') && ($('.sync-state span').textContent = '服务器同步失败');
     $('.sync-state i')?.classList.add('offline');
   });
+}
+
+function syncAllLocalState() {
+  if (!window.ZhuxuServer?.active || !authenticatedUserId || mustChangePassword) return;
+  persistTasks(); persistDocumentState(); persistOrganization(); persistPlans(); persistConcealedAcceptances();
+  persistQualityChecks(); persistAttendance(); persistSafetyInspections(); persistSiteRecords(); persistIntakeRecords(); persistTechnicalDocuments(); persistCostDocuments(); persistDailyExecution(); persistDailyCoordination();
 }
 
 function persistOrganization() { localStorage.setItem('zhuxu-organization', JSON.stringify(organization)); syncServerState('zhuxu-organization', organization); }
@@ -576,6 +584,7 @@ async function loginWithCredentials(account, password, remember = false) {
 async function logoutCurrentUser() {
   await window.ZhuxuServer?.logout?.();
   authenticatedUserId = '';
+  mustChangePassword = false;
   sessionStorage.removeItem(AUTH_SESSION_KEY);
   localStorage.removeItem(AUTH_REMEMBER_KEY);
   $$('dialog[open]').forEach(dialog => dialog.close());
@@ -594,6 +603,95 @@ function renderCurrentUser() {
   $('#currentUserRole').textContent = person.role;
   $('#accountSwitcherButton').title = `当前账号：${person.account || person.name}，点击退出`;
   updateCostAccessUI();
+  updateAccountPermissionUI();
+}
+
+function isServerAccountAdmin(person = getCurrentUser()) {
+  return Boolean(window.ZhuxuServer?.active && /项目经理/.test(String(person?.role || '')));
+}
+
+function updateAccountPermissionUI() {
+  const button = $('#organizationButton');
+  if (button) button.hidden = window.ZhuxuServer?.active && !/项目经理/.test(String(getCurrentUser()?.role || ''));
+}
+
+function passwordPolicyError(password) {
+  const value = String(password || '');
+  if (value.length < 8) return '新密码至少 8 位';
+  if (!/\p{L}/u.test(value) || !/\p{N}/u.test(value)) return '新密码必须同时包含字母和数字';
+  return null;
+}
+
+function openPasswordChangeDialog() {
+  const dialog = $('#passwordChangeDialog');
+  if (!dialog) return;
+  $$('dialog[open]').forEach(item => { if (item !== dialog) item.close(); });
+  $('#passwordChangeError').textContent = '';
+  if (!dialog.open) dialog.showModal();
+}
+
+async function loadAccounts() {
+  const container = $('#accountManageList');
+  if (!container) return;
+  if (!window.ZhuxuServer?.active || !isServerAccountAdmin()) { container.innerHTML = '<p class="resource-empty">仅项目经理可查看账号管理。</p>'; return; }
+  container.innerHTML = '<p class="resource-empty">正在加载项目账号…</p>';
+  try {
+    const payload = await window.ZhuxuServer.request('/api/accounts');
+    serverAccounts = Array.isArray(payload.accounts) ? payload.accounts : [];
+    container.innerHTML = serverAccounts.length ? `<div class="account-manage-table">${serverAccounts.map(account => {
+      const stateClass = !account.enabled ? 'disabled' : account.mustChangePassword ? 'pending' : '';
+      const stateLabel = !account.enabled ? '已禁用' : account.mustChangePassword ? '待改密' : '正常';
+      return `<div class="account-row"><span><b>${escapeHtml(account.name)}</b><small>${escapeHtml(account.account)}</small></span><span>${escapeHtml(account.role)}</span><span>${escapeHtml(account.phone || '未登记')}</span><span><i class="account-state ${stateClass}">${stateLabel}</i></span><span class="account-actions"><button type="button" data-edit-account="${account.id}">编辑</button><button type="button" data-reset-account="${account.id}">重置密码</button><button type="button" data-toggle-account="${account.id}">${account.enabled ? '禁用' : '启用'}</button></span></div>`;
+    }).join('')}</div>` : '<p class="resource-empty">暂无账号，点击右上角新增。</p>';
+    $$('[data-edit-account]', container).forEach(button => button.addEventListener('click', () => openAccountDialog(button.dataset.editAccount)));
+    $$('[data-reset-account]', container).forEach(button => button.addEventListener('click', () => openAccountConfirm('reset', button.dataset.resetAccount)));
+    $$('[data-toggle-account]', container).forEach(button => button.addEventListener('click', () => openAccountConfirm('toggle', button.dataset.toggleAccount)));
+  } catch (error) {
+    container.innerHTML = `<p class="resource-empty">账号加载失败：${escapeHtml(error.message || '请稍后重试')}</p>`;
+  }
+}
+
+function openAccountDialog(accountId = null) {
+  const form = $('#accountForm');
+  if (!form) return;
+  form.reset();
+  const roleSelect = form.elements.role;
+  roleSelect.innerHTML = [...new Set(defaultOrganization.map(person => person.role))].map(role => `<option>${escapeHtml(role)}</option>`).join('');
+  if (accountId) {
+    const account = serverAccounts.find(item => String(item.id) === String(accountId));
+    if (!account) return;
+    form.elements.accountId.value = account.id;
+    form.elements.name.value = account.name;
+    roleSelect.value = account.role;
+    form.elements.account.value = account.account;
+    form.elements.account.readOnly = true;
+    form.elements.phone.value = account.phone || '';
+    form.elements.scope.value = account.scope || '';
+    $('#accountDialogEyebrow').textContent = '编辑项目账号';
+    $('#accountDialogTitle').textContent = '维护项目账号';
+  } else {
+    form.elements.account.readOnly = false;
+    $('#accountDialogEyebrow').textContent = '新增项目账号';
+    $('#accountDialogTitle').textContent = '登记项目账号';
+  }
+  $('#accountDialog').showModal();
+}
+
+function openAccountConfirm(action, accountId) {
+  const account = serverAccounts.find(item => String(item.id) === String(accountId));
+  if (!account) return;
+  $('#accountConfirmAction').value = action;
+  $('#accountConfirmId').value = accountId;
+  if (action === 'reset') {
+    $('#accountConfirmTitle').textContent = '重置登录密码';
+    $('#accountConfirmCopy').textContent = `将把「${account.name}（${account.account}）」的密码重置为登记手机号后六位，并强制其下次登录时修改密码。该账号的现有登录会话将全部失效。`;
+  } else {
+    const disable = Boolean(account.enabled);
+    if (disable && String(account.id) === String(currentUserId)) { showToast('不能禁用当前登录账号'); return; }
+    $('#accountConfirmTitle').textContent = disable ? '禁用账号' : '启用账号';
+    $('#accountConfirmCopy').textContent = disable ? `禁用后「${account.name}」将无法登录，已有会话立即失效；可随时重新启用。` : `启用后「${account.name}」可重新登录项目系统。`;
+  }
+  $('#accountConfirmDialog').showModal();
 }
 
 function matchPersonByRole(role) {
@@ -1790,11 +1888,21 @@ function openInspectionBatchDialog(inspection = null) {
 function renderTeamBody() {
   const latest = [...attendanceRecords].sort((a,b) => b.date.localeCompare(a.date))[0] || { actual: 0, planned: 0, date: '未登记' };
   const ratio = latest.planned ? Math.round(latest.actual / latest.planned * 100) : 0;
-  return `<section class="management-panel"><div class="section-line-heading"><div><strong>项目管理人员</strong><small>账号职位决定任务自动匹配；姓名、职务、管理范围和电话可维护</small></div><button type="button" data-edit-organization>编辑人员</button></div><div class="management-roster">${organization.map(person => `<article><div class="management-avatar">${escapeHtml(person.name.slice(0,1))}</div><div><strong>${escapeHtml(person.name)}</strong><span>${escapeHtml(person.role)}</span><p>${escapeHtml(person.scope || '待确认管理范围')}</p><a href="tel:${String(person.phone || '').replace(/\s/g,'')}">${escapeHtml(person.phone || '未登记电话')}</a></div></article>`).join('')}</div></section>
-    <section class="workforce-panel"><div class="section-line-heading"><div><strong>现场班组与每日考勤</strong><small>现场人数以劳资员每日上传的实名制打卡情况表为准；核对补录仅在登记后 24 小时内开放</small></div><div><button type="button" data-attendance-history>查看往期考勤</button><button type="button" data-attendance>上传考勤表</button><button type="button" data-team-allocation>班组调配</button></div></div><div class="card-collection workforce-cards"><article class="info-card"><h3>现场人员</h3><div class="big">${latest.actual} 人</div><p>${latest.date} 打卡 · 计划投入 ${latest.planned} 人</p><div class="mini-bar"><i style="width:${Math.min(100,ratio)}%"></i></div></article><article class="info-card"><h3>饱和班组</h3><div class="big">8 / 12</div><p>木工班组存在缺员，建议协调补充</p><div class="mini-bar"><i style="width:67%"></i></div></article><article class="info-card"><h3>人均有效工时</h3><div class="big">7.2 h</div><p>较上周提升 0.4 小时</p><div class="mini-bar"><i style="width:82%"></i></div></article></div><div class="attendance-history"><div><strong>最近考勤登记</strong><button type="button" data-attendance-history>全部 ${attendanceRecords.length} 天</button></div>${attendanceRecords.slice(0,5).map(record => { const windowState = attendanceSupplementWindow(record); return `<div class="attendance-history-entry"><button type="button" data-attendance-record="${record.id}"><b>${record.date}</b><span>${record.actual} / ${record.planned} 人 · ${escapeHtml(record.officer)}</span><em>${escapeHtml(record.note || '考勤纪律正常')}</em><i>查看详情</i></button><button type="button" class="attendance-supplement-action ${windowState.allowed ? '' : 'expired'}" data-supplement-attendance="${record.id}" ${windowState.allowed ? '' : 'disabled'}>${attendanceSupplementLabel(record)}</button></div>`; }).join('')}</div></section>`;
+  const serverActive = Boolean(window.ZhuxuServer?.active);
+  const person = getCurrentUser();
+  const role = String(person?.role || '');
+  const admin = serverActive ? /项目经理/.test(role) : true;
+  const attendanceManager = serverActive ? /(劳资员|项目经理)/.test(role) : true;
+  const organizationAction = admin ? `<button type="button" data-edit-organization>编辑人员</button>` : `<span class="management-permission-note">仅项目经理可维护组织架构</span>`;
+  const attendanceAction = attendanceManager ? `<button type="button" data-attendance>上传考勤表</button>` : '';
+  const supplementAction = record => attendanceManager ? `<button type="button" class="attendance-supplement-action ${attendanceSupplementWindow(record).allowed ? '' : 'expired'}" data-supplement-attendance="${record.id}" ${attendanceSupplementWindow(record).allowed ? '' : 'disabled'}>${attendanceSupplementLabel(record)}</button>` : '';
+  const accountPanel = serverActive && admin ? `<section class="account-manage-panel"><div class="section-line-heading"><div><strong>账号管理</strong><small>维护登录账号与登录状态；新账号初始密码为手机号后六位，首次登录强制修改密码</small></div><button type="button" data-new-account>新增账号</button></div><div class="account-manage-list" id="accountManageList">正在加载项目账号…</div></section>` : '';
+  return `<section class="management-panel"><div class="section-line-heading"><div><strong>项目管理人员</strong><small>账号职位决定任务自动匹配；姓名、职务、管理范围和电话可维护</small></div>${organizationAction}</div><div class="management-roster">${organization.map(person => `<article><div class="management-avatar">${escapeHtml(person.name.slice(0,1))}</div><div><strong>${escapeHtml(person.name)}</strong><span>${escapeHtml(person.role)}</span><p>${escapeHtml(person.scope || '待确认管理范围')}</p><a href="tel:${String(person.phone || '').replace(/\s/g,'')}">${escapeHtml(person.phone || '未登记电话')}</a></div></article>`).join('')}</div></section>
+    <section class="workforce-panel"><div class="section-line-heading"><div><strong>现场班组与每日考勤</strong><small>现场人数以劳资员每日上传的实名制打卡情况表为准；核对补录仅在登记后 24 小时内开放</small></div><div><button type="button" data-attendance-history>查看往期考勤</button>${attendanceAction}<button type="button" data-team-allocation>班组调配</button></div></div><div class="card-collection workforce-cards"><article class="info-card"><h3>现场人员</h3><div class="big">${latest.actual} 人</div><p>${latest.date} 打卡 · 计划投入 ${latest.planned} 人</p><div class="mini-bar"><i style="width:${Math.min(100,ratio)}%"></i></div></article><article class="info-card"><h3>饱和班组</h3><div class="big">8 / 12</div><p>木工班组存在缺员，建议协调补充</p><div class="mini-bar"><i style="width:67%"></i></div></article><article class="info-card"><h3>人均有效工时</h3><div class="big">7.2 h</div><p>较上周提升 0.4 小时</p><div class="mini-bar"><i style="width:82%"></i></div></article></div><div class="attendance-history"><div><strong>最近考勤登记</strong><button type="button" data-attendance-history>全部 ${attendanceRecords.length} 天</button></div>${attendanceRecords.slice(0,5).map(record => { const windowState = attendanceSupplementWindow(record); return `<div class="attendance-history-entry"><button type="button" data-attendance-record="${record.id}"><b>${record.date}</b><span>${record.actual} / ${record.planned} 人 · ${escapeHtml(record.officer)}</span><em>${escapeHtml(record.note || '考勤纪律正常')}</em><i>查看详情</i></button>${supplementAction(record)}</div>`; }).join('')}</div></section>${accountPanel}`;
 }
 
 function openAttendanceDialog() {
+  if (window.ZhuxuServer?.active && !/(劳资员|项目经理)/.test(String(getCurrentUser()?.role || ''))) { showToast('仅劳资员或项目经理可上传考勤表'); return; }
   const form = $('#attendanceForm'); form.reset();
   const latest = [...attendanceRecords].sort((a,b) => b.date.localeCompare(a.date))[0];
   form.elements.date.value = new Date().toISOString().slice(0,10);
@@ -1822,6 +1930,7 @@ function openAttendanceHistory(selectedId = null) {
 }
 
 function openAttendanceSupplement(recordId) {
+  if (window.ZhuxuServer?.active && !/(劳资员|项目经理)/.test(String(getCurrentUser()?.role || ''))) { showToast('仅劳资员或项目经理可核对补录考勤'); return; }
   const record = attendanceRecords.find(item => Number(item.id) === Number(recordId));
   if (!record) return;
   const windowState = attendanceSupplementWindow(record);
@@ -2268,6 +2377,8 @@ function renderSubview(id) {
   $$('[data-attendance-record]', container).forEach(button => button.addEventListener('click', () => openAttendanceHistory(button.dataset.attendanceRecord)));
   $$('[data-supplement-attendance]', container).forEach(button => button.addEventListener('click', () => openAttendanceSupplement(button.dataset.supplementAttendance)));
   $('[data-team-allocation]', container)?.addEventListener('click', () => showToast('班组调配已进入下一行，可结合今日考勤人数调整班组投入'));
+  $('[data-new-account]', container)?.addEventListener('click', () => openAccountDialog());
+  if (id === 'team') loadAccounts();
   $$('[data-remind-followup]', container).forEach(button => button.addEventListener('click', () => {
     followups = followups.map(item => item.id === Number(button.dataset.remindFollowup) ? { ...item, reminders: item.reminders + 1, lastRemindedAt: new Date().toISOString() } : item);
     persistFollowups(); renderSubview('followups'); showToast('已再次提醒责任人，并记录本次催办');
@@ -2275,6 +2386,7 @@ function renderSubview(id) {
 }
 
 function navigate(viewId) {
+  if (mustChangePassword) { openPasswordChangeDialog(); return; }
   if (viewId === 'dashboard') viewId = 'intake';
   if (viewId === 'cost' && !hasCostAccess()) { openCostAccessDenied(); return; }
   $$('.view').forEach(view => view.classList.toggle('active', view.id === viewId));
@@ -2442,6 +2554,7 @@ function exportData() {
 }
 
 function initializeApp() {
+  if (window.ZhuxuServer?.active && authenticatedUserId) mustChangePassword = Boolean(window.ZhuxuServer.user?.mustChangePassword);
   const formatter = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' });
   $('#todayLabel').textContent = `${formatter.format(new Date())} · 第 218 个施工日`;
   if (authenticatedUserId && !hasCostAccess()) costDocuments = [];
@@ -2454,10 +2567,7 @@ function initializeApp() {
   if (window.ZhuxuServer?.active) {
     $('.login-version').textContent = '筑序 v1.0 · 项目局域网多人版';
     $('.sync-state span').textContent = authenticatedUserId ? '局域网数据已连接' : '等待登录服务器';
-    if (authenticatedUserId) {
-      persistTasks(); persistDocumentState(); persistOrganization(); persistPlans(); persistConcealedAcceptances();
-      persistQualityChecks(); persistAttendance(); persistSafetyInspections(); persistSiteRecords(); persistIntakeRecords(); persistTechnicalDocuments(); persistCostDocuments(); persistDailyExecution(); persistDailyCoordination();
-    }
+    if (authenticatedUserId) syncAllLocalState();
   } else {
     $('.login-version').textContent = '筑序 v1.0 · 本机离线演示版';
   }
@@ -2488,6 +2598,79 @@ function initializeApp() {
     input.type = visible ? 'password' : 'text';
     event.currentTarget.textContent = visible ? '显示' : '隐藏';
     event.currentTarget.setAttribute('aria-label', visible ? '显示密码' : '隐藏密码');
+  });
+
+  $('#passwordChangeLogout').addEventListener('click', logoutCurrentUser);
+  $('#passwordChangeForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const currentPassword = form.elements.currentPassword.value;
+    const newPassword = form.elements.newPassword.value;
+    const confirmPassword = form.elements.confirmPassword.value;
+    const errorEl = $('#passwordChangeError');
+    if (!currentPassword) { errorEl.textContent = '请输入当前密码。'; form.elements.currentPassword.focus(); return; }
+    const policyError = passwordPolicyError(newPassword);
+    if (policyError) { errorEl.textContent = `${policyError}。`; form.elements.newPassword.focus(); return; }
+    if (newPassword === currentPassword) { errorEl.textContent = '新密码不能与当前密码相同。'; form.elements.newPassword.focus(); return; }
+    if (newPassword !== confirmPassword) { errorEl.textContent = '两次输入的新密码不一致。'; form.elements.confirmPassword.focus(); return; }
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true; submit.textContent = '修改中…';
+    try {
+      await window.ZhuxuServer.request('/api/password/change', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+      window.ZhuxuServer.user.mustChangePassword = false;
+      mustChangePassword = false;
+      form.reset();
+      $('#passwordChangeDialog').close();
+      navigate('intake');
+      syncAllLocalState();
+      showToast('密码修改成功，请牢记并使用新密码');
+    } catch (error) {
+      errorEl.textContent = error.message || '密码修改失败，请重试';
+      form.elements.currentPassword.select();
+    } finally { submit.disabled = false; submit.textContent = '确认修改密码'; }
+  });
+
+  $('#accountForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const accountId = form.elements.accountId.value;
+    const payload = { name: form.elements.name.value.trim(), role: form.elements.role.value, phone: form.elements.phone.value.trim(), scope: form.elements.scope.value.trim() };
+    if (accountId) payload.account = form.elements.account.value.trim();
+    if (!payload.account && !accountId) { showToast('请填写登录账号'); form.elements.account.focus(); return; }
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true; submit.textContent = '保存中…';
+    try {
+      if (accountId) await window.ZhuxuServer.request(`/api/accounts/${encodeURIComponent(accountId)}`, { method: 'PUT', body: JSON.stringify(payload) });
+      else await window.ZhuxuServer.request('/api/accounts', { method: 'POST', body: JSON.stringify(payload) });
+      form.reset(); $('#accountDialog').close();
+      showToast(accountId ? '账号信息已更新' : '账号已创建，初始密码为登记手机号后六位');
+      if ($('#team').classList.contains('active')) renderSubview('team');
+    } catch (error) {
+      showToast(error.message || '保存失败，请重试');
+    } finally { submit.disabled = false; submit.textContent = '保存账号'; }
+  });
+
+  $('#accountConfirmSubmit').addEventListener('click', async () => {
+    const action = $('#accountConfirmAction').value;
+    const accountId = $('#accountConfirmId').value;
+    if (!action || !accountId) return;
+    const submit = $('#accountConfirmSubmit');
+    submit.disabled = true; submit.textContent = '处理中…';
+    try {
+      if (action === 'reset') {
+        await window.ZhuxuServer.request(`/api/accounts/${encodeURIComponent(accountId)}`, { method: 'PUT', body: JSON.stringify({ resetPassword: true }) });
+        showToast('密码已重置为登记手机号后六位，该账号下次登录需修改密码');
+      } else {
+        const account = serverAccounts.find(item => String(item.id) === String(accountId));
+        const disable = Boolean(account?.enabled);
+        await window.ZhuxuServer.request(`/api/accounts/${encodeURIComponent(accountId)}`, { method: 'PUT', body: JSON.stringify({ enabled: disable ? 0 : 1 }) });
+        showToast(disable ? '账号已禁用，该账号的会话已失效' : '账号已启用，可重新登录');
+      }
+      $('#accountConfirmDialog').close();
+      if ($('#team').classList.contains('active')) renderSubview('team');
+    } catch (error) {
+      showToast(error.message || '操作失败，请重试');
+    } finally { submit.disabled = false; submit.textContent = '确认'; }
   });
 
   $$('.nav-item').forEach(item => item.addEventListener('click', () => navigate(item.dataset.view)));
@@ -3056,7 +3239,7 @@ function initializeApp() {
       submitButton.textContent = '保存记录';
     }
   });
-  $$('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); }));
+  $$('dialog').forEach(dialog => dialog.addEventListener('click', event => { if (event.target === dialog && dialog.id !== 'passwordChangeDialog') dialog.close(); }));
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeApp, { once: true });

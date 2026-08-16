@@ -2,19 +2,59 @@ const { chromium } = require('playwright');
 
 const baseUrl = process.env.ZHUXU_TEST_URL || 'http://127.0.0.1:8091';
 const accounts = {
-  pm: ['chen.pm', '001001'], builder: ['wu.builder', '001004'], production: ['wang.prod', '001002'], commercial: ['luo.cost', '001116']
+  pm: ['chen.pm', '001001', 'ZhuxuPM2026'],
+  builder: ['wu.builder', '001004', 'ZhuxuWu2026'],
+  production: ['wang.prod', '001002', 'ZhuxuWang2026'],
+  commercial: ['luo.cost', '001116', 'ZhuxuLuo2026'],
+  labor: ['zhao.labor', '001113', 'ZhuxuZhao2026'],
+  'li.tech': ['li.tech', '001201', 'ZhuxuLi2026']
 };
 
-async function login(page, accountKey) {
-  const [account, password] = accounts[accountKey];
+async function waitAuthenticated(page) {
+  await page.locator('body.authenticated').waitFor();
+  await page.waitForLoadState('networkidle');
+}
+
+async function openLogin(page) {
   await page.goto(baseUrl);
   await page.locator('body.auth-locked').waitFor();
   await page.waitForLoadState('networkidle');
+}
+
+async function loginInitial(page, accountKey) {
+  const [account, password] = accounts[accountKey];
+  await openLogin(page);
   await page.locator('#loginForm input[name="account"]').fill(account);
   await page.locator('#loginForm input[name="password"]').fill(password);
   await page.locator('#loginForm').getByRole('button', { name: '登录平台' }).click();
-  await page.locator('body.authenticated').waitFor();
-  await page.waitForLoadState('networkidle');
+  await waitAuthenticated(page);
+}
+
+async function changePassword(page, accountKey) {
+  const [, initial, fresh] = accounts[accountKey];
+  await page.locator('#passwordChangeDialog[open]').waitFor();
+  await page.locator('#passwordChangeForm input[name="currentPassword"]').fill(initial);
+  await page.locator('#passwordChangeForm input[name="newPassword"]').fill(fresh);
+  await page.locator('#passwordChangeForm input[name="confirmPassword"]').fill(fresh);
+  await page.locator('#passwordChangeForm').getByRole('button', { name: '确认修改密码' }).click();
+  await page.locator('#passwordChangeDialog').waitFor({ state: 'hidden' });
+}
+
+async function login(page, accountKey) {
+  const [account, , fresh] = accounts[accountKey];
+  await openLogin(page);
+  await page.locator('#loginForm input[name="account"]').fill(account);
+  await page.locator('#loginForm input[name="password"]').fill(fresh);
+  await page.locator('#loginForm').getByRole('button', { name: '登录平台' }).click();
+  await waitAuthenticated(page);
+  if (await page.locator('#passwordChangeDialog[open]').count()) throw new Error(`${accountKey} was unexpectedly forced to change password`);
+}
+
+async function apiPut(page, path, value) {
+  return page.evaluate(async ({ path, value }) => {
+    const response = await fetch(path, { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
+    return { status: response.status, body: await response.json() };
+  }, { path, value });
 }
 
 (async () => {
@@ -37,6 +77,31 @@ async function login(page, accountKey) {
   await pm.locator('body.authenticated').waitFor();
   await pm.waitForLoadState('networkidle');
   if (!(await pm.locator('.sync-state').textContent()).includes('局域网')) throw new Error('Shared-data connection state missing');
+  await pm.locator('#passwordChangeDialog[open]').waitFor();
+  if (!(await pm.locator('#passwordChangeDialog').getByText('请先修改初始密码').isVisible())) throw new Error('First-login password change dialog was not shown');
+
+  const gatedState = await apiPut(pm, '/api/state/zhuxu-tasks', await pm.evaluate(() => tasks));
+  if (gatedState.status !== 403 || !gatedState.body.error.includes('请先修改初始密码')) throw new Error(`Server did not block writes before password change: ${JSON.stringify(gatedState)}`);
+
+  await pm.locator('#passwordChangeForm input[name="currentPassword"]').fill('wrong-current');
+  await pm.locator('#passwordChangeForm input[name="newPassword"]').fill('ZhuxuPM2026');
+  await pm.locator('#passwordChangeForm input[name="confirmPassword"]').fill('ZhuxuPM2026');
+  await pm.locator('#passwordChangeForm').getByRole('button', { name: '确认修改密码' }).click();
+  await pm.locator('#passwordChangeError').getByText('当前密码不正确', { exact: false }).waitFor();
+  await pm.locator('#passwordChangeForm input[name="currentPassword"]').fill('001001');
+  await pm.locator('#passwordChangeForm input[name="newPassword"]').fill('1234567');
+  await pm.locator('#passwordChangeForm input[name="confirmPassword"]').fill('1234567');
+  await pm.locator('#passwordChangeForm').getByRole('button', { name: '确认修改密码' }).click();
+  await pm.locator('#passwordChangeError').getByText('新密码至少 8 位', { exact: false }).waitFor();
+  await pm.locator('#passwordChangeForm input[name="newPassword"]').fill('12345678');
+  await pm.locator('#passwordChangeForm input[name="confirmPassword"]').fill('12345678');
+  await pm.locator('#passwordChangeForm').getByRole('button', { name: '确认修改密码' }).click();
+  await pm.locator('#passwordChangeError').getByText('新密码必须同时包含字母和数字', { exact: false }).waitFor();
+  await pm.locator('#passwordChangeForm input[name="newPassword"]').fill('ZhuxuPM2026');
+  await pm.locator('#passwordChangeForm input[name="confirmPassword"]').fill('ZhuxuPM2026');
+  await pm.locator('#passwordChangeForm').getByRole('button', { name: '确认修改密码' }).click();
+  await pm.locator('#passwordChangeDialog').waitFor({ state: 'hidden' });
+  await pm.waitForLoadState('networkidle');
 
   await pm.locator('[data-view="tasks"]').click();
   await pm.locator('#tasks .subview-action').click();
@@ -106,10 +171,28 @@ async function login(page, accountKey) {
   await pm.locator('#intakeReviewDialog [data-close-dialog]').click();
   await pm.waitForTimeout(300);
 
+  const createdAccount = await pm.evaluate(async () => {
+    const response = await fetch('/api/accounts', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '李明', role: '试验员', account: 'li.tech', phone: '138 0000 1201', scope: '取样送检与试验跟踪' }) });
+    return { status: response.status, body: await response.json() };
+  });
+  if (createdAccount.status !== 200 || !createdAccount.body.account) throw new Error(`PM could not create account: ${createdAccount.status} ${JSON.stringify(createdAccount.body)}`);
+  const liTechId = createdAccount.body.account.id;
+  const orgAfterCreate = await pm.evaluate(async () => {
+    const payload = await (await fetch('/api/bootstrap', { credentials: 'same-origin' })).json();
+    return payload.state['zhuxu-organization'] || [];
+  });
+  if (!orgAfterCreate.some(person => person.account === 'li.tech')) throw new Error('Created account was not synced into organization state');
+  const accountsList = await pm.evaluate(async () => {
+    const payload = await (await fetch('/api/accounts', { credentials: 'same-origin' })).json();
+    return payload.accounts || [];
+  });
+  if (!accountsList.some(account => account.account === 'li.tech' && account.mustChangePassword)) throw new Error('Created account is not marked as must-change-password');
+
   const builderContext = await browser.newContext({ viewport: { width: 1280, height: 820 } });
   const builder = await builderContext.newPage();
   builder.on('pageerror', error => errors.push(`Builder: ${error.message}`));
-  await login(builder, 'builder');
+  await loginInitial(builder, 'builder');
+  await changePassword(builder, 'builder');
   await builder.locator('[data-view="tasks"]').click();
   if (!(await builder.locator('#tasks').getByText('局域网多人协同测试任务').first().isVisible())) throw new Error('Task created by PM was not shared with builder');
   await builder.locator('[data-view="intake"]').click();
@@ -128,6 +211,15 @@ async function login(page, accountKey) {
   if (deniedCostUpdate.status !== 403 || !deniedCostUpdate.body.error.includes('无成控文件')) throw new Error(`Server did not protect cost-control state: ${JSON.stringify(deniedCostUpdate)}`);
   await builder.locator('#costAccessDialog [data-close-dialog]').first().click();
   if (!(await builder.locator('#currentUserCard').getByText('吴晨').isVisible())) throw new Error('Builder login was not bound to server account');
+  const deniedAccounts = await builder.evaluate(async () => {
+    const response = await fetch('/api/accounts', { credentials: 'same-origin' });
+    return { status: response.status, body: await response.json() };
+  });
+  if (deniedAccounts.status !== 403 || !deniedAccounts.body.error.includes('仅项目经理')) throw new Error(`Server did not block account list for builder: ${JSON.stringify(deniedAccounts)}`);
+  const deniedOrgWrite = await apiPut(builder, '/api/state/zhuxu-organization', await builder.evaluate(() => organization));
+  if (deniedOrgWrite.status !== 403 || !deniedOrgWrite.body.error.includes('写入权限')) throw new Error(`Server did not restrict organization writes: ${JSON.stringify(deniedOrgWrite)}`);
+  const deniedAttendanceWrite = await apiPut(builder, '/api/state/zhuxu-attendance', await builder.evaluate(() => attendanceRecords));
+  if (deniedAttendanceWrite.status !== 403 || !deniedAttendanceWrite.body.error.includes('写入权限')) throw new Error(`Server did not restrict attendance writes for builder: ${JSON.stringify(deniedAttendanceWrite)}`);
   await builder.locator('[data-view="materials"]').click();
   await builder.locator('#materials [data-resource-tab="plans"]').click();
   await builder.locator(`#materials [data-resource-plan-detail="${sharedPlanId}"]`).click();
@@ -139,7 +231,8 @@ async function login(page, accountKey) {
   const productionContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const production = await productionContext.newPage();
   production.on('pageerror', error => errors.push(`Production: ${error.message}`));
-  await login(production, 'production');
+  await loginInitial(production, 'production');
+  await changePassword(production, 'production');
   await production.locator('[data-view="materials"]').click();
   await production.locator('#materials [data-resource-tab="plans"]').click();
   await production.locator(`#materials [data-resource-plan-detail="${sharedPlanId}"]`).click();
@@ -147,16 +240,77 @@ async function login(page, accountKey) {
   if (!(await action.isVisible())) throw new Error('Production manager did not receive own approval action');
   await action.click();
   await production.locator('#resourceDetailDialog .approval-step').nth(1).getByText('已通过', { exact: false }).waitFor();
+  const productionAttendanceWrite = await apiPut(production, '/api/state/zhuxu-attendance', await production.evaluate(() => attendanceRecords));
+  if (productionAttendanceWrite.status !== 403 || !productionAttendanceWrite.body.error.includes('写入权限')) throw new Error(`Server did not restrict attendance writes for production manager: ${JSON.stringify(productionAttendanceWrite)}`);
 
   const commercialContext = await browser.newContext({ viewport: { width: 1280, height: 820 } });
   const commercial = await commercialContext.newPage();
   commercial.on('pageerror', error => errors.push(`Commercial: ${error.message}`));
-  await login(commercial, 'commercial');
+  await loginInitial(commercial, 'commercial');
+  await changePassword(commercial, 'commercial');
   await commercial.locator('[data-view="cost"]').click();
   if (!(await commercial.locator('#cost').getByText('局域网共享现场工程量确认单', { exact: true }).isVisible())) throw new Error('Authorized commercial manager could not access shared cost-control document');
 
+  const laborContext = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  const labor = await laborContext.newPage();
+  labor.on('pageerror', error => errors.push(`Labor: ${error.message}`));
+  await loginInitial(labor, 'labor');
+  await changePassword(labor, 'labor');
+  const laborAttendanceWrite = await apiPut(labor, '/api/state/zhuxu-attendance', await labor.evaluate(() => attendanceRecords));
+  if (laborAttendanceWrite.status !== 200) throw new Error(`Labor officer could not write attendance: ${JSON.stringify(laborAttendanceWrite)}`);
+
+  const liTechContext = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  const liTech = await liTechContext.newPage();
+  liTech.on('pageerror', error => errors.push(`LiTech: ${error.message}`));
+  await loginInitial(liTech, 'li.tech');
+  await changePassword(liTech, 'li.tech');
+  const liTechTaskWrite = await apiPut(liTech, '/api/state/zhuxu-tasks', await liTech.evaluate(() => tasks));
+  if (liTechTaskWrite.status !== 200) throw new Error(`New account could not write shared tasks: ${JSON.stringify(liTechTaskWrite)}`);
+
+  const disableResult = await pm.evaluate(async ({ liTechId }) => {
+    const response = await fetch(`/api/accounts/${encodeURIComponent(liTechId)}`, { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: 0 }) });
+    return { status: response.status, body: await response.json() };
+  }, { liTechId });
+  if (disableResult.status !== 200) throw new Error(`PM could not disable account: ${JSON.stringify(disableResult)}`);
+  await liTech.goto(baseUrl);
+  await liTech.locator('body.auth-locked').waitFor();
+  await liTech.waitForLoadState('networkidle');
+  await liTech.locator('#loginForm input[name="account"]').fill('li.tech');
+  await liTech.locator('#loginForm input[name="password"]').fill('ZhuxuLi2026');
+  await liTech.locator('#loginForm').getByRole('button', { name: '登录平台' }).click();
+  await liTech.locator('#loginError').getByText('账号或密码不正确', { exact: false }).waitFor();
+
+  const enableResult = await pm.evaluate(async ({ liTechId }) => {
+    const response = await fetch(`/api/accounts/${encodeURIComponent(liTechId)}`, { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: 1 }) });
+    return { status: response.status, body: await response.json() };
+  }, { liTechId });
+  if (enableResult.status !== 200) throw new Error(`PM could not re-enable account: ${JSON.stringify(enableResult)}`);
+  await liTech.locator('#loginForm input[name="password"]').fill('ZhuxuLi2026');
+  await liTech.locator('#loginForm').getByRole('button', { name: '登录平台' }).click();
+  await liTech.locator('body.authenticated').waitFor();
+  await liTech.waitForLoadState('networkidle');
+  if (await liTech.locator('#passwordChangeDialog[open]').count()) throw new Error('Re-enabled account was unexpectedly forced to change password');
+
+  const resetResult = await pm.evaluate(async ({ liTechId }) => {
+    const response = await fetch(`/api/accounts/${encodeURIComponent(liTechId)}`, { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ resetPassword: true }) });
+    return { status: response.status, body: await response.json() };
+  }, { liTechId });
+  if (resetResult.status !== 200) throw new Error(`PM could not reset account password: ${JSON.stringify(resetResult)}`);
+  await liTech.goto(baseUrl);
+  await liTech.locator('body.auth-locked').waitFor();
+  await liTech.waitForLoadState('networkidle');
+  await liTech.locator('#loginForm input[name="account"]').fill('li.tech');
+  await liTech.locator('#loginForm input[name="password"]').fill('001201');
+  await liTech.locator('#loginForm').getByRole('button', { name: '登录平台' }).click();
+  await liTech.locator('body.authenticated').waitFor();
+  await liTech.waitForLoadState('networkidle');
+  await liTech.locator('#passwordChangeDialog[open]').waitFor();
+  await changePassword(liTech, 'li.tech');
+
   await pm.reload();
   await pm.locator('body.authenticated').waitFor();
+  await pm.waitForLoadState('networkidle');
+  if (await pm.locator('#passwordChangeDialog[open]').count()) throw new Error('PM was forced to change password again after reload');
   await pm.locator('[data-view="materials"]').click();
   await pm.locator('#materials [data-resource-tab="plans"]').click();
   await pm.locator(`#materials [data-resource-plan-detail="${sharedPlanId}"]`).click();
@@ -165,6 +319,6 @@ async function login(page, accountKey) {
   const health = await pm.evaluate(async () => (await fetch('/api/health')).json());
   if (!health.ok || health.user.account !== 'chen.pm') throw new Error('Authenticated health endpoint failed');
   if (errors.length) throw new Error(errors.join(' | '));
-  await commercialContext.close(); await productionContext.close(); await builderContext.close(); await pmContext.close(); await browser.close();
-  console.log('PASS: LAN multi-user login, cost permissions, shared state and server-side approval verified');
+  await liTechContext.close(); await laborContext.close(); await commercialContext.close(); await productionContext.close(); await builderContext.close(); await pmContext.close(); await browser.close();
+  console.log('PASS: LAN multi-user login, first-login password change, account management, cost permissions, shared state and server-side approval verified');
 })().catch(error => { console.error(error); process.exit(1); });
