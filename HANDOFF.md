@@ -222,6 +222,7 @@
 
 | 日期 | 修改文件 | 修改内容 | 是否验证 |
 | --- | --- | --- | --- |
+| `2026-08-16` | `server.js`、`app.js`、`_test_lan.js` | 登录未选项目时自动带入唯一项目/多项目提示选择；登录下拉兜底；数据修复：`chen.pm` 补入“王老吉项目”成员 | 是，`npm test` 通过 |
 | `2026-08-16` | `server.js`、`app.js`、`index.html`、`_test_lan.js` | 建立新项目可复用已有账号作为管理员（原密码登录）、创建者自动加入新项目、顶栏菜单实时刷新；全部密码框增加显示/隐藏按钮 | 是，`npm test` 通过 |
 | `2026-08-16` | `server.js`、`server-bridge.js`、`app.js`、`index.html`、`styles.css`、`_test_lan.js` | 同一账号参与多个项目：`publicUser.projects` 返回全部授权项目、`/api/projects/switch` 会话切换、顶栏项目菜单一键切换；账号加入已有账号时提示并入当前项目 | 是，`npm test` 通过 |
 | `2026-08-16` | `server.js`、`server-bridge.js`、`app.js`、`index.html`、`styles.css`、`_test_lan.js` | 多项目架构：新库初始化向导、登录选项目、项目级数据隔离、组织建人自动生成账号、项目经理可建新项目；服务器模式不注入演示数据 | 是，`npm test` 通过 |
@@ -275,7 +276,7 @@
 ## 14. Git 与工作区状态
 
 - 当前分支：`master`
-- 最近提交：`4fa2e7d`（feat: reuse existing account as new project admin, creator auto-joins, password visibility toggles）
+- 最近提交：`81aa5d4`（fix: login without project selection auto-resolves, chen.pm added to Wanglaoji project）
 - 未提交文件：交接完成时应为“无”；接收方必须以实际 `git status` 为准。
 - 新增但未跟踪文件：交接完成时应为“无”；运行数据和测试截图属于已忽略文件。项目目录中的《基于人工智能的建筑工程施工全过程协同管控工法_初稿.md》为用户文档，不属于本工具代码，勿提交或改写。
 - 是否已创建交接检查点：`是`
