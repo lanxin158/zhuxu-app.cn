@@ -310,8 +310,28 @@
       <label>适用部位 / 范围<input name="scope" required placeholder="例如：3#楼 8F 梁板"></label>
       <label>主要内容<textarea name="content" rows="5" required placeholder="填写必须执行的技术要求、变更内容或联系事项"></textarea></label>
       <label>上传原文件<input name="files" type="file" accept=".pdf,.dwg,.dxf,.doc,.docx,.xls,.xlsx,image/*" multiple><small>支持 PDF、CAD、Word、Excel 和图片，上传后项目成员均可查看。</small></label>
-      <div class="drawing-folder-upload"><button type="button" class="secondary-button" id="drawingFolderButton">＋ 直接上传图纸文件夹</button><small id="drawingFolderState">选择文件夹后，按“单体 / 专业 / 图纸”目录结构自动归档</small><input class="visually-hidden" id="drawingFolderInput" type="file" webkitdirectory multiple></div>
+      <div class="drawing-folder-upload"><button type="button" class="secondary-button" id="drawingFolderButton">＋ 直接上传图纸文件夹</button><small id="drawingFolderState">选择文件夹后确认归属单体，按“单体 / 专业 / 图纸”目录结构自动归档</small><input class="visually-hidden" id="drawingFolderInput" type="file" webkitdirectory multiple></div>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存技术文件</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="drawingImportDialog">
+    <form id="drawingImportForm" method="dialog">
+      <div class="dialog-heading"><div><span>图纸文件夹导入</span><h2>确认图纸归属</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="dialog-description">已选择 <b id="drawingImportCount">0</b> 个图纸文件。系统按“单体 / 专业 / 图纸名”归档：第二级目录如为 结构/建筑/暖通/采暖/给排水/电气/消防 将自动识别为专业。请确认这些图纸归属哪个单体。</p>
+      <label>归属单体<input name="targetBuilding" required maxlength="40" placeholder="例如：4#楼（可填已有单体或新单体名）"></label>
+      <p class="login-error" id="drawingImportError" role="alert" aria-live="polite"></p>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">确认导入</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="drawingNewBuildingDialog">
+    <form id="drawingNewBuildingForm" method="dialog">
+      <div class="dialog-heading"><div><span>施工图单体目录</span><h2>新建单体文件夹</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="dialog-description">建立后即可在“按单体查看施工图”中看到该文件夹，随后上传图纸或导入文件夹时选择归入。</p>
+      <label>单体名称<input name="buildingName" required maxlength="40" placeholder="例如：5#楼、大门、室外工程"></label>
+      <p class="login-error" id="drawingNewBuildingError" role="alert" aria-live="polite"></p>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">创建单体文件夹</button></div>
     </form>
   </dialog>
 

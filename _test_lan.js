@@ -198,33 +198,48 @@ async function apiPutRaw(page, path, body) {
   const drawingRecord = await pm.evaluate(() => technicalDocuments.find(item => item.code === 'SJT-2026-001'));
   if (!drawingRecord || drawingRecord.profession !== '结构') throw new Error(`Drawing profession was not saved: ${JSON.stringify(drawingRecord)}`);
 
-  // —— 施工图：直接上传图纸文件夹（按 单体/专业/图纸 自动归档） ——
+  // —— 施工图：直接上传图纸文件夹（导入时指定归属单体，按 专业/图纸 自动归档） ——
   const folderImport = await pm.evaluate(async () => {
     const files = [];
-    const rels = ['3#楼/结构/首层梁配筋图.dwg', '3#楼/建筑/首层平面图.dwg', '地下室/给排水/集水坑排水图.dwg', '室外工程/景观电气.dwg'];
+    const rels = ['结构/首层梁配筋图.dwg', '建筑/首层平面图.dwg', '给排水/集水坑排水图.dwg', '电气/景观电气.dwg'];
     for (const rel of rels) {
       const file = new File(['dwg-content'], rel.split('/').pop());
       Object.defineProperty(file, 'webkitRelativePath', { value: rel });
       files.push(file);
     }
-    const count = await importDrawingFolder(files);
+    const count = await importDrawingFolder(files, '4#楼');
     const docs = technicalDocuments.filter(item => item.fromFolder).map(item => `${item.building}/${item.profession}/${item.title}`);
     return { count, docs };
   });
   if (folderImport.count !== 4) throw new Error(`Folder import should add 4 drawings, got ${folderImport.count}`);
-  for (const expect of ['3#楼/结构/首层梁配筋图', '3#楼/建筑/首层平面图', '地下室/给排水/集水坑排水图', '室外工程/电气/景观电气']) {
+  for (const expect of ['4#楼/结构/首层梁配筋图', '4#楼/建筑/首层平面图', '4#楼/给排水/集水坑排水图', '4#楼/电气/景观电气']) {
     if (!folderImport.docs.includes(expect)) throw new Error(`Folder import missing ${expect}: ${JSON.stringify(folderImport.docs)}`);
   }
 
-  // —— 施工图：单体内按专业分组与过滤 ——
+  // —— 施工图：新建单体按钮 ——
   await pm.locator('[data-technical-filter="drawing"]').click();
+  await pm.locator('[data-new-drawing-building]').click();
+  await pm.locator('#drawingNewBuildingDialog[open]').waitFor();
+  await pm.locator('#drawingNewBuildingForm input[name="buildingName"]').fill('5#楼');
+  await pm.locator('#drawingNewBuildingForm').getByRole('button', { name: '创建单体文件夹' }).click();
+  await pm.locator('#drawingNewBuildingDialog').waitFor({ state: 'hidden' });
+  if (!(await pm.locator('[data-technical-building="5#楼"]').count())) throw new Error('New building folder was not created');
+  if (!(await pm.locator('[data-technical-building="4#楼"]').count())) throw new Error('Folder-imported building folder missing');
+
+  // —— 施工图：单体内按专业分组与过滤 ——
   await pm.locator('[data-technical-building="3#楼"]').click();
   if (await pm.locator('.technical-profession-tabs button').count() < 3) throw new Error('Profession tabs missing inside building folder');
   await pm.locator('[data-technical-profession="结构"]').click();
   if (!(await pm.locator('#technical').getByText('3#楼 8F 梁配筋图').first().isVisible())) throw new Error('Structural drawing not shown in structural filter');
-  if (await pm.locator('#technical').getByText('首层平面图').count()) throw new Error('Architectural drawing leaked into structural filter');
+  if (await pm.locator('#technical').getByText('首层平面图').count()) throw new Error('Drawing from another building leaked into filter');
+  // 回到单体列表，验证 4#楼 的消防/建筑等专业过滤
+  await pm.locator('[data-technical-building="all"]').click();
+  await pm.locator('[data-technical-building="4#楼"]').click();
   await pm.locator('[data-technical-profession="建筑"]').click();
-  if (!(await pm.locator('#technical').getByText('首层平面图').first().isVisible())) throw new Error('Architectural drawing not shown in architectural filter');
+  if (!(await pm.locator('#technical').getByText('首层平面图').first().isVisible())) throw new Error('Architectural drawing not shown in 4# building architectural filter');
+  await pm.locator('[data-technical-profession="结构"]').click();
+  if (!(await pm.locator('#technical').getByText('首层梁配筋图').first().isVisible())) throw new Error('Structural drawing not shown in 4# building structural filter');
+  if (await pm.locator('#technical').getByText('3#楼 8F 梁配筋图').count()) throw new Error('3# building drawing leaked into 4# building filter');
   // 回到技术文件列表
   await pm.locator('[data-technical-building="all"]').click();
 

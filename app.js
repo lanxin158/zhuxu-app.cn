@@ -262,6 +262,7 @@ let siteRecords = JSON.parse(localStorage.getItem('zhuxu-site-records') || 'null
 let intakeRecords = JSON.parse(localStorage.getItem('zhuxu-intake-records') || 'null') || (serverMode ? [] : defaultIntakeRecords);
 let technicalDocuments = JSON.parse(localStorage.getItem('zhuxu-technical-documents') || 'null') || (serverMode ? [] : defaultTechnicalDocuments);
 technicalDocuments = technicalDocuments.map(item => ({ ...item, building: item.building || technicalBuildingName(item) }));
+let drawingBuildings = JSON.parse(localStorage.getItem('zhuxu-drawing-buildings') || '[]') || [];
 let costDocuments = JSON.parse(localStorage.getItem('zhuxu-cost-documents') || 'null') || (serverMode ? [] : defaultCostDocuments);
 let dailyExecution = JSON.parse(localStorage.getItem('zhuxu-daily-execution') || 'null') || (serverMode ? [] : defaultDailyExecution);
 let dailyCoordination = JSON.parse(localStorage.getItem('zhuxu-daily-coordination') || 'null') || (serverMode ? [] : defaultDailyCoordination);
@@ -366,6 +367,7 @@ const RESOURCE_ATTACHMENT_STORE_NAME = 'resource-attachments';
 let activeAttachmentUrl = null;
 let mustChangePassword = false;
 let serverAccounts = [];
+let pendingDrawingFiles = [];
 
 const $ = (selector, context = document) => context.querySelector(selector);
 const $$ = (selector, context = document) => [...context.querySelectorAll(selector)];
@@ -385,6 +387,7 @@ function syncAllLocalState() {
   if (!window.ZhuxuServer?.active || !authenticatedUserId || mustChangePassword) return;
   persistTasks(); persistDocumentState(); persistOrganization(); persistPlans(); persistConcealedAcceptances();
   persistQualityChecks(); persistAttendance(); persistSafetyInspections(); persistSiteRecords(); persistIntakeRecords(); persistTechnicalDocuments(); persistCostDocuments(); persistDailyExecution(); persistDailyCoordination();
+  persistDrawingBuildings();
 }
 
 function persistOrganization() { localStorage.setItem('zhuxu-organization', JSON.stringify(organization)); syncServerState('zhuxu-organization', organization); }
@@ -408,6 +411,11 @@ function persistTechnicalDocuments() {
   localStorage.setItem('zhuxu-technical-documents', JSON.stringify(technicalDocuments));
   syncServerState('zhuxu-technical-documents', technicalDocuments);
   if ($('#technicalBadge')) $('#technicalBadge').textContent = technicalDocuments.length;
+}
+function persistDrawingBuildings() {
+  drawingBuildings = [...new Set(drawingBuildings.map(item => String(item).trim()).filter(Boolean))];
+  localStorage.setItem('zhuxu-drawing-buildings', JSON.stringify(drawingBuildings));
+  syncServerState('zhuxu-drawing-buildings', drawingBuildings);
 }
 function persistCostDocuments() {
   if (authenticatedUserId && !hasCostAccess()) { updateCostAccessUI(); return; }
@@ -1226,14 +1234,14 @@ function renderTechnicalDocumentsBody() {
   const types = [['all','全部'],['drawing','施工图纸'],['change','设计变更'],['contact','联系函'],['instruction','指令单']];
   const professionTabs = [['all','全部'], ...DRAWING_PROFESSIONS.map(profession => [profession, profession]), ['其他','其他']];
   const drawings = technicalDocuments.filter(item => item.type === 'drawing');
-  const drawingFolders = [...new Set(drawings.map(technicalBuildingName))].sort((a,b) => a.localeCompare(b,'zh-CN'));
+  const drawingFolders = [...new Set([...drawingBuildings, ...drawings.map(technicalBuildingName)])].sort((a,b) => a.localeCompare(b,'zh-CN'));
   const visible = technicalDocuments.filter(item => {
     if (activeTechnicalFilter !== 'all' && item.type !== activeTechnicalFilter) return false;
     if (activeTechnicalFilter === 'drawing' && activeTechnicalBuilding !== 'all' && technicalBuildingName(item) !== activeTechnicalBuilding) return false;
     if (activeTechnicalFilter === 'drawing' && activeTechnicalBuilding !== 'all' && activeTechnicalProfession !== 'all' && professionLabel(item.profession) !== activeTechnicalProfession) return false;
     return activeTechnicalFilter !== 'drawing' || activeTechnicalBuilding !== 'all';
   }).sort((a,b) => String(b.issuedAt).localeCompare(String(a.issuedAt)));
-  const drawingBrowser = activeTechnicalFilter === 'drawing' ? `<section class="technical-building-browser"><div class="technical-building-heading"><div><span>DRAWING ARCHIVE</span><strong>按单体查看施工图</strong><small>单体文件夹内按结构、建筑、暖通、采暖、给排水、电气、消防分专业；支持直接上传整个图纸文件夹</small></div>${activeTechnicalBuilding !== 'all' ? `<button type="button" data-technical-building="all">← 返回全部单体</button>` : ''}</div><div class="technical-building-folders">${drawingFolders.map(building => { const items = drawings.filter(item => technicalBuildingName(item) === building); const latest = [...items].sort((a,b) => String(b.issuedAt).localeCompare(String(a.issuedAt)))[0]; const professionSummary = [...new Set(items.map(item => professionLabel(item.profession)))].slice(0, 3).map(profession => `${profession} ${items.filter(item => professionLabel(item.profession) === profession).length}`).join(' · '); return `<button type="button" class="${activeTechnicalBuilding === building ? 'active' : ''}" data-technical-building="${escapeHtml(building)}"><i><span></span></i><strong>${escapeHtml(building)}</strong><small>${items.length} 张施工图 · ${professionSummary || '尚未按专业分类'}</small><em>打开文件夹 →</em></button>`; }).join('') || '<div class="resource-empty">还没有施工图文件夹，可在“上传”中选择文件夹或上传图纸时填写所属单体后自动建立。</div>'}</div>${activeTechnicalBuilding === 'all' && drawingFolders.length ? '<p class="technical-folder-hint">请选择一个单体文件夹查看其中的施工图。</p>' : ''}${activeTechnicalBuilding !== 'all' ? `<div class="technical-profession-tabs" role="tablist" aria-label="施工图专业分类">${professionTabs.map(([key,label]) => `<button type="button" role="tab" aria-selected="${key === activeTechnicalProfession}" class="${key === activeTechnicalProfession ? 'active' : ''}" data-technical-profession="${key}">${label}<b>${key === 'all' ? drawings.filter(item => technicalBuildingName(item) === activeTechnicalBuilding).length : drawings.filter(item => technicalBuildingName(item) === activeTechnicalBuilding && professionLabel(item.profession) === key).length}</b></button>`).join('')}</div>` : ''}</section>` : '';
+  const drawingBrowser = activeTechnicalFilter === 'drawing' ? `<section class="technical-building-browser"><div class="technical-building-heading"><div><span>DRAWING ARCHIVE</span><strong>按单体查看施工图</strong><small>单体文件夹内按结构、建筑、暖通、采暖、给排水、电气、消防分专业；上传整个图纸文件夹时可指定归属单体</small></div><div>${activeTechnicalBuilding !== 'all' ? `<button type="button" data-technical-building="all">← 返回全部单体</button>` : `<button type="button" data-new-drawing-building>＋ 新建单体</button>`}</div></div><div class="technical-building-folders">${drawingFolders.map(building => { const items = drawings.filter(item => technicalBuildingName(item) === building); const latest = [...items].sort((a,b) => String(b.issuedAt).localeCompare(String(a.issuedAt)))[0]; const professionSummary = [...new Set(items.map(item => professionLabel(item.profession)))].slice(0, 3).map(profession => `${profession} ${items.filter(item => professionLabel(item.profession) === profession).length}`).join(' · '); return `<button type="button" class="${activeTechnicalBuilding === building ? 'active' : ''}" data-technical-building="${escapeHtml(building)}"><i><span></span></i><strong>${escapeHtml(building)}</strong><small>${items.length} 张施工图 · ${professionSummary || '空文件夹，可开始上传图纸'}</small><em>${items.length ? '打开文件夹 →' : '空文件夹'}</em></button>`; }).join('') || '<div class="resource-empty">还没有施工图文件夹，可点击“新建单体”建立，或上传图纸/文件夹时自动创建。</div>'}</div>${activeTechnicalBuilding === 'all' && drawingFolders.length ? '<p class="technical-folder-hint">请选择一个单体文件夹查看其中的施工图。</p>' : ''}${activeTechnicalBuilding !== 'all' ? `<div class="technical-profession-tabs" role="tablist" aria-label="施工图专业分类">${professionTabs.map(([key,label]) => `<button type="button" role="tab" aria-selected="${key === activeTechnicalProfession}" class="${key === activeTechnicalProfession ? 'active' : ''}" data-technical-profession="${key}">${label}<b>${key === 'all' ? drawings.filter(item => technicalBuildingName(item) === activeTechnicalBuilding).length : drawings.filter(item => technicalBuildingName(item) === activeTechnicalBuilding && professionLabel(item.profession) === key).length}</b></button>`).join('')}</div>` : ''}</section>` : '';
   return `<section class="technical-file-overview"><div><span>TECHNICAL FILE REGISTER</span><h2>项目技术文件统一入口</h2><p>技术负责人上传原文件并注明适用部位，现场人员可随时查看；关联任务中的变更和指令会突出风险提醒。</p></div><div>${types.slice(1).map(([key,label]) => `<button type="button" class="${activeTechnicalFilter === key ? 'active' : ''}" data-technical-overview-filter="${key}"><strong>${technicalDocuments.filter(item => item.type === key).length}</strong><span>${label}</span><em>${key === 'drawing' ? '打开单体文件夹' : '直接查看文件'} →</em></button>`).join('')}</div></section>
     <div class="technical-file-tabs">${types.map(([key,label]) => `<button type="button" class="${activeTechnicalFilter === key ? 'active' : ''}" data-technical-filter="${key}">${label}<b>${key === 'all' ? technicalDocuments.length : technicalDocuments.filter(item => item.type === key).length}</b></button>`).join('')}</div>
     ${drawingBrowser}
@@ -1249,7 +1257,7 @@ function openTechnicalDocumentDialog() {
   $('#technicalDocumentDialog').showModal();
 }
 
-async function importDrawingFolder(files) {
+async function importDrawingFolder(files, targetBuilding = '') {
   const items = [...files].sort((a, b) => String(a.webkitRelativePath || a.name).localeCompare(String(b.webkitRelativePath || b.name)));
   if (!items.length) return 0;
   const stateEl = $('#drawingFolderState');
@@ -1260,7 +1268,7 @@ async function importDrawingFolder(files) {
     const rel = file.webkitRelativePath || file.name;
     const segments = rel.split('/').filter(Boolean);
     const fileName = segments.pop() || file.name;
-    const building = (segments[0] || '').trim() || '综合图纸';
+    const building = (targetBuilding || '').trim() || (segments[0] || '').trim() || '综合图纸';
     let profession = segments[1] && DRAWING_PROFESSIONS.includes(segments[1].trim()) ? segments[1].trim() : '';
     if (!profession) profession = detectProfession(`${fileName} ${building} ${segments.join(' ')}`);
     const title = fileName.replace(/\.[^.]+$/, '');
@@ -1270,9 +1278,11 @@ async function importDrawingFolder(files) {
     } catch (error) { /* 单个文件导入失败时跳过 */ }
   }
   technicalDocuments.unshift(...created);
+  created.forEach(item => { if (item.building && !drawingBuildings.includes(item.building)) drawingBuildings.push(item.building); });
   persistTechnicalDocuments();
+  persistDrawingBuildings();
   if (stateEl) { stateEl.textContent = `已导入 ${created.length} 个图纸文件${created.length !== items.length ? `（跳过 ${items.length - created.length} 个）` : ''}`; stateEl.classList.remove('working'); }
-  if (created.length) showToast(`已按单体/专业导入 ${created.length} 张施工图`);
+  if (created.length) showToast(`已导入 ${created.length} 张施工图，归属单体：${created[0].building}`);
   return created.length;
 }
 
@@ -2454,6 +2464,7 @@ function renderSubview(id) {
   $$('[data-technical-overview-filter]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalFilter = button.dataset.technicalOverviewFilter; activeTechnicalBuilding = 'all'; activeTechnicalProfession = 'all'; renderSubview('technical'); }));
   $$('[data-technical-building]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalBuilding = button.dataset.technicalBuilding; activeTechnicalProfession = 'all'; renderSubview('technical'); }));
   $$('[data-technical-profession]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalProfession = button.dataset.technicalProfession; renderSubview('technical'); }));
+  $('[data-new-drawing-building]', container)?.addEventListener('click', () => { $('#drawingNewBuildingError').textContent = ''; $('#drawingNewBuildingForm').reset(); $('#drawingNewBuildingDialog').showModal(); });
   $$('[data-technical-document]', container).forEach(button => button.addEventListener('click', () => openTechnicalDocumentDetail(button.dataset.technicalDocument)));
   $$('[data-cost-filter]', container).forEach(button => button.addEventListener('click', () => { activeCostFilter = button.dataset.costFilter; renderSubview('cost'); }));
   $$('[data-cost-overview-filter]', container).forEach(button => button.addEventListener('click', () => { activeCostFilter = button.dataset.costOverviewFilter; renderSubview('cost'); }));
@@ -2961,10 +2972,45 @@ function initializeApp() {
   });
   $('#technicalDocumentForm select[name="type"]').addEventListener('change', event => { $('#professionField').hidden = event.target.value !== 'drawing'; });
   $('#drawingFolderButton').addEventListener('click', () => $('#drawingFolderInput').click());
-  $('#drawingFolderInput').addEventListener('change', async event => {
+  $('#drawingFolderInput').addEventListener('change', event => {
     const files = [...event.target.files];
     event.target.value = '';
-    if (files.length) await importDrawingFolder(files);
+    if (!files.length) return;
+    pendingDrawingFiles = files;
+    const firstRel = files[0].webkitRelativePath || files[0].name;
+    const firstSegments = firstRel.split('/').filter(Boolean);
+    $('#drawingImportCount').textContent = files.length;
+    $('#drawingImportForm').elements.targetBuilding.value = (firstSegments[0] || '').trim();
+    $('#drawingImportError').textContent = '';
+    $('#drawingImportDialog').showModal();
+  });
+  $('#drawingImportForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const building = form.elements.targetBuilding.value.trim();
+    if (!building) { $('#drawingImportError').textContent = '请填写归属单体。'; return; }
+    if (!pendingDrawingFiles.length) { $('#drawingImportError').textContent = '没有可导入的文件，请重新选择文件夹。'; return; }
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true; submit.textContent = '导入中…';
+    try {
+      await importDrawingFolder(pendingDrawingFiles, building);
+      form.reset(); $('#drawingImportDialog').close();
+      if ($('#technical').classList.contains('active')) renderSubview('technical');
+    } catch (error) {
+      $('#drawingImportError').textContent = error.message || '导入失败，请重试';
+    } finally { submit.disabled = false; submit.textContent = '确认导入'; pendingDrawingFiles = []; }
+  });
+  $('#drawingNewBuildingForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const name = form.elements.buildingName.value.trim();
+    if (!name) { $('#drawingNewBuildingError').textContent = '请填写单体名称。'; return; }
+    if (drawingBuildings.includes(name)) { $('#drawingNewBuildingError').textContent = '该单体已存在。'; return; }
+    drawingBuildings.push(name);
+    persistDrawingBuildings();
+    form.reset(); $('#drawingNewBuildingDialog').close();
+    if ($('#technical').classList.contains('active')) renderSubview('technical');
+    showToast(`已建立单体文件夹：${name}`);
   });
   $('#costDocumentForm').addEventListener('submit', async event => {
     event.preventDefault();
