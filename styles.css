@@ -20,8 +20,16 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; color: var(--ink); background: var(--paper); font-family: "Microsoft YaHei UI", "PingFang SC", sans-serif; }
-body.auth-pending .app-shell, body.auth-locked .app-shell, body.authenticated .login-screen { display: none; }
+body.auth-pending .app-shell, body.auth-locked .app-shell, body.auth-init .app-shell { display: none; }
+body.authenticated .login-screen { display: none; }
 body.auth-pending .login-screen { visibility: hidden; }
+body.auth-init .login-screen { display: none; }
+#initScreen { display: none; }
+body.auth-init #initScreen { display: grid; }
+#initScreen .login-form .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+#initScreen .login-form .form-grid label { display: grid; gap: 8px; margin: 0 0 12px; }
+#loginScreen select, #initScreen select { width: 100%; height: 49px; padding: 0 12px; border: 1px solid #ccd8de; border-radius: 7px; color: var(--ink); background: white; font-size: 12px; }
+#initScreen .login-form input[type="text"], #initScreen .login-form input[type="password"] { width: 100%; height: 49px; padding: 0 14px; border: 1px solid #ccd8de; border-radius: 7px; color: var(--ink); background: white; font-size: 12px; font-weight: 400; }
 button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid rgba(35, 90, 130, .24); outline-offset: 2px; }

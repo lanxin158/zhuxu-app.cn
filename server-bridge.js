@@ -8,6 +8,8 @@
   const bridge = {
     active: false,
     user: null,
+    needsInit: false,
+    projects: [],
     sharedKeys,
     async request(path, options = {}) {
       const response = await fetch(path, {
@@ -30,14 +32,24 @@
         else if (key === 'zhuxu-cost-documents' && this.user?.permissions?.cost === false) localStorage.removeItem(key);
       });
     },
-    async login(account, password, remember) {
-      const payload = await this.request('/api/login', { method: 'POST', body: JSON.stringify({ account, password, remember }) });
+    async login(account, password, projectId, remember) {
+      const payload = await this.request('/api/login', { method: 'POST', body: JSON.stringify({ account, password, projectId, remember }) });
       this.active = true;
       this.user = payload.user;
       this.hydrate(payload.state);
       sessionStorage.setItem('zhuxu-auth-session', String(payload.user.id));
+      localStorage.setItem('zhuxu-auth-project', String(payload.user.project.id));
       localStorage.removeItem('zhuxu-auth-remember');
       return payload.user;
+    },
+    async initProject(payload) {
+      const result = await this.request('/api/projects/init', { method: 'POST', body: JSON.stringify(payload) });
+      this.active = true;
+      this.user = result.user;
+      this.hydrate(result.state);
+      sessionStorage.setItem('zhuxu-auth-session', String(result.user.id));
+      localStorage.setItem('zhuxu-auth-project', String(result.user.project.id));
+      return result.user;
     },
     async logout() {
       if (this.active) await this.request('/api/logout', { method: 'POST', body: '{}' }).catch(() => {});
@@ -76,8 +88,11 @@
             bridge.user = payload.user;
             bridge.hydrate(payload.state);
             sessionStorage.setItem('zhuxu-auth-session', String(payload.user.id));
+            localStorage.setItem('zhuxu-auth-project', String(payload.user.project.id));
             localStorage.removeItem('zhuxu-auth-remember');
           } else {
+            bridge.needsInit = Boolean(payload.needsInit);
+            bridge.projects = Array.isArray(payload.projects) ? payload.projects : [];
             sessionStorage.removeItem('zhuxu-auth-session');
             localStorage.removeItem('zhuxu-auth-remember');
           }

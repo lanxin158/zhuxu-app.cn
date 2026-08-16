@@ -244,54 +244,58 @@ const defaultSafetyInspections = Array.from({ length: 12 }, (_, index) => {
   };
 });
 
-let tasks = JSON.parse(localStorage.getItem('zhuxu-tasks') || 'null') || defaultTasks;
+const serverMode = Boolean(window.ZhuxuServer?.active);
+let tasks = JSON.parse(localStorage.getItem('zhuxu-tasks') || 'null') || (serverMode ? [] : defaultTasks);
 tasks = tasks.map(task => task.id === 1 && task.title === '3#楼 8F 梁板钢筋验收' ? { ...task, title: '3#楼 8F 梁板钢筋绑扎及验收', status: task.status === 'risk' ? 'todo' : task.status } : task);
 tasks = tasks.map(task => ({ creator: task.creator || '项目管理人员', taskType: task.taskType || '施工任务', ...task }));
-let documentState = JSON.parse(localStorage.getItem('zhuxu-document-state') || 'null') || structuredClone(defaultDocumentState);
-let followups = JSON.parse(localStorage.getItem('zhuxu-followups') || 'null') || defaultFollowups;
-let organization = JSON.parse(localStorage.getItem('zhuxu-organization') || 'null') || defaultOrganization;
-defaultOrganization.forEach(defaultPerson => {
-  if (!organization.some(person => person.role === defaultPerson.role)) organization.push(defaultPerson);
-});
-let plans = JSON.parse(localStorage.getItem('zhuxu-plans') || 'null') || defaultPlans;
-let resourceEntries = JSON.parse(localStorage.getItem('zhuxu-resource-entries') || 'null') || defaultResourceEntries;
-let resourcePlans = JSON.parse(localStorage.getItem('zhuxu-resource-plans') || 'null') || defaultResourcePlans;
-let concealedAcceptances = JSON.parse(localStorage.getItem('zhuxu-concealed-acceptances') || 'null') || defaultConcealedAcceptances;
-let qualityChecks = JSON.parse(localStorage.getItem('zhuxu-quality-checks') || 'null') || defaultQualityChecks;
-let attendanceRecords = JSON.parse(localStorage.getItem('zhuxu-attendance') || 'null') || defaultAttendance;
-let safetyInspections = JSON.parse(localStorage.getItem('zhuxu-safety-inspections') || 'null') || defaultSafetyInspections;
+let documentState = JSON.parse(localStorage.getItem('zhuxu-document-state') || 'null') || (serverMode ? {} : structuredClone(defaultDocumentState));
+let followups = JSON.parse(localStorage.getItem('zhuxu-followups') || 'null') || (serverMode ? [] : defaultFollowups);
+let organization = JSON.parse(localStorage.getItem('zhuxu-organization') || 'null') || (serverMode ? [] : defaultOrganization);
+let plans = JSON.parse(localStorage.getItem('zhuxu-plans') || 'null') || (serverMode ? [] : defaultPlans);
+let resourceEntries = JSON.parse(localStorage.getItem('zhuxu-resource-entries') || 'null') || (serverMode ? [] : defaultResourceEntries);
+let resourcePlans = JSON.parse(localStorage.getItem('zhuxu-resource-plans') || 'null') || (serverMode ? [] : defaultResourcePlans);
+let concealedAcceptances = JSON.parse(localStorage.getItem('zhuxu-concealed-acceptances') || 'null') || (serverMode ? [] : defaultConcealedAcceptances);
+let qualityChecks = JSON.parse(localStorage.getItem('zhuxu-quality-checks') || 'null') || (serverMode ? [] : defaultQualityChecks);
+let attendanceRecords = JSON.parse(localStorage.getItem('zhuxu-attendance') || 'null') || (serverMode ? [] : defaultAttendance);
+let safetyInspections = JSON.parse(localStorage.getItem('zhuxu-safety-inspections') || 'null') || (serverMode ? [] : defaultSafetyInspections);
 let siteRecords = JSON.parse(localStorage.getItem('zhuxu-site-records') || 'null') || [];
-let intakeRecords = JSON.parse(localStorage.getItem('zhuxu-intake-records') || 'null') || defaultIntakeRecords;
-let technicalDocuments = JSON.parse(localStorage.getItem('zhuxu-technical-documents') || 'null') || defaultTechnicalDocuments;
+let intakeRecords = JSON.parse(localStorage.getItem('zhuxu-intake-records') || 'null') || (serverMode ? [] : defaultIntakeRecords);
+let technicalDocuments = JSON.parse(localStorage.getItem('zhuxu-technical-documents') || 'null') || (serverMode ? [] : defaultTechnicalDocuments);
 technicalDocuments = technicalDocuments.map(item => ({ ...item, building: item.building || technicalBuildingName(item) }));
-let costDocuments = JSON.parse(localStorage.getItem('zhuxu-cost-documents') || 'null') || defaultCostDocuments;
-let dailyExecution = JSON.parse(localStorage.getItem('zhuxu-daily-execution') || 'null') || defaultDailyExecution;
-let dailyCoordination = JSON.parse(localStorage.getItem('zhuxu-daily-coordination') || 'null') || defaultDailyCoordination;
-defaultPlans.filter(item => item.level === 'week').forEach(defaultPlan => {
-  const index = plans.findIndex(item => Number(item.id) === Number(defaultPlan.id));
-  if (index < 0) plans.push(structuredClone(defaultPlan));
-  else if (plans[index].end < dailyDateKey || plans[index].start > dailyDateKey) plans[index] = { ...plans[index], start: defaultPlan.start, end: defaultPlan.end, weight: defaultPlan.weight };
-});
-defaultPlans.filter(item => item.level === 'day').forEach(defaultPlan => {
-  if (!plans.some(item => Number(item.id) === Number(defaultPlan.id))) plans.push(structuredClone(defaultPlan));
-});
-defaultDailyExecution.forEach(defaultRecord => {
-  const existing = dailyExecution.find(item => Number(item.taskId) === Number(defaultRecord.taskId) && item.date === defaultRecord.date);
-  if (!existing) dailyExecution.push(structuredClone(defaultRecord));
-  else if (!existing.dayPlanId) Object.assign(existing, { dayPlanId: defaultRecord.dayPlanId, weekPlanId: defaultRecord.weekPlanId });
-});
+let costDocuments = JSON.parse(localStorage.getItem('zhuxu-cost-documents') || 'null') || (serverMode ? [] : defaultCostDocuments);
+let dailyExecution = JSON.parse(localStorage.getItem('zhuxu-daily-execution') || 'null') || (serverMode ? [] : defaultDailyExecution);
+let dailyCoordination = JSON.parse(localStorage.getItem('zhuxu-daily-coordination') || 'null') || (serverMode ? [] : defaultDailyCoordination);
+if (!serverMode) {
+  defaultOrganization.forEach(defaultPerson => {
+    if (!organization.some(person => person.role === defaultPerson.role)) organization.push(defaultPerson);
+  });
+  defaultPlans.filter(item => item.level === 'week').forEach(defaultPlan => {
+    const index = plans.findIndex(item => Number(item.id) === Number(defaultPlan.id));
+    if (index < 0) plans.push(structuredClone(defaultPlan));
+    else if (plans[index].end < dailyDateKey || plans[index].start > dailyDateKey) plans[index] = { ...plans[index], start: defaultPlan.start, end: defaultPlan.end, weight: defaultPlan.weight };
+  });
+  defaultPlans.filter(item => item.level === 'day').forEach(defaultPlan => {
+    if (!plans.some(item => Number(item.id) === Number(defaultPlan.id))) plans.push(structuredClone(defaultPlan));
+  });
+  defaultDailyExecution.forEach(defaultRecord => {
+    const existing = dailyExecution.find(item => Number(item.taskId) === Number(defaultRecord.taskId) && item.date === defaultRecord.date);
+    if (!existing) dailyExecution.push(structuredClone(defaultRecord));
+    else if (!existing.dayPlanId) Object.assign(existing, { dayPlanId: defaultRecord.dayPlanId, weekPlanId: defaultRecord.weekPlanId });
+  });
+  Object.entries(defaultDocumentState).forEach(([key, defaults]) => {
+    if (!documentState[key]) documentState[key] = structuredClone(defaults);
+    else documentState[key] = { ...structuredClone(defaults), ...documentState[key], commissionAttachments: documentState[key].commissionAttachments || [], reportAttachments: documentState[key].reportAttachments || [] };
+  });
+  organization = organization.map((person, index) => ({ phone: defaultOrganization.find(item => item.role === person.role)?.phone || `138 0000 ${String(1100 + index)}`, ...person }));
+}
 attendanceRecords = attendanceRecords.map(record => ({ supplements: [], registeredAt: `${record.date}T18:00:00+08:00`, ...record }));
-Object.entries(defaultDocumentState).forEach(([key, defaults]) => {
-  if (!documentState[key]) documentState[key] = structuredClone(defaults);
-  else documentState[key] = { ...structuredClone(defaults), ...documentState[key], commissionAttachments: documentState[key].commissionAttachments || [], reportAttachments: documentState[key].reportAttachments || [] };
-});
-organization = organization.map((person, index) => ({ phone: defaultOrganization.find(item => item.role === person.role)?.phone || `138 0000 ${String(1100 + index)}`, ...person }));
 const AUTH_SESSION_KEY = 'zhuxu-auth-session';
 const AUTH_REMEMBER_KEY = 'zhuxu-auth-remember';
+const currentProject = serverMode ? (window.ZhuxuServer?.user?.project || { id: '', name: '项目管理系统' }) : { id: 'offline', name: '云河智造中心一期' };
 let authenticatedUserId = sessionStorage.getItem(AUTH_SESSION_KEY) || localStorage.getItem(AUTH_REMEMBER_KEY) || '';
-let currentUserId = authenticatedUserId || 'pm';
-if (!organization.some(person => String(person.id) === String(currentUserId))) currentUserId = organization[0]?.id || '';
-if (!organization.some(person => String(person.id) === String(authenticatedUserId))) authenticatedUserId = '';
+let currentUserId = authenticatedUserId || (serverMode ? '' : 'pm');
+if (!serverMode && !organization.some(person => String(person.id) === String(currentUserId))) currentUserId = organization[0]?.id || '';
+if (!serverMode && !organization.some(person => String(person.id) === String(authenticatedUserId))) authenticatedUserId = '';
 const approvalSequenceRoles = ['提报人', '生产经理', '技术负责人', '库管', '项目经理'];
 resourcePlans = resourcePlans.map(plan => {
   if (plan.type !== 'material') return plan;
@@ -502,7 +506,7 @@ reconcileResourcePlans();
 function renderOrganization() {
   $('#organizationRoles').innerHTML = organization.slice(0, 6).map(person => `<span class="role-chip"><b>${person.role}</b>${person.name}</span>`).join('');
   $('#organizationOwners').innerHTML = organization.map(person => `<option value="${person.name} · ${person.role}"></option>`).join('');
-  $('#organizationEditor').innerHTML = organization.map(person => `<div class="organization-person" data-person-id="${person.id}"><input name="personName" value="${person.name}" aria-label="${person.role}姓名"><select name="personRole" aria-label="${person.name}职位">${defaultOrganization.map(item => `<option ${item.role === person.role ? 'selected' : ''}>${item.role}</option>`).join('')}</select><input name="personPhone" value="${person.phone || ''}" aria-label="${person.name}电话号码" placeholder="电话号码"><input name="personScope" value="${person.scope || ''}" aria-label="${person.name}管理范围" placeholder="管理范围"><small>${person.account}</small></div>`).join('');
+  $('#organizationEditor').innerHTML = organization.length ? organization.map(person => `<div class="organization-person" data-person-id="${person.id}"><input name="personName" value="${person.name}" aria-label="${person.role}姓名"><select name="personRole" aria-label="${person.name}职位">${defaultOrganization.map(item => `<option ${item.role === person.role ? 'selected' : ''}>${item.role}</option>`).join('')}</select><input name="personPhone" value="${person.phone || ''}" aria-label="${person.name}电话号码" placeholder="电话号码"><input name="personScope" value="${person.scope || ''}" aria-label="${person.name}管理范围" placeholder="管理范围"><small>${person.account}</small></div>`).join('') : '<p class="resource-empty">尚未建立组织机构。请由项目经理在“组织架构 → 账号管理”中新增人员，系统将自动生成登录账号。</p>';
   renderCurrentUser();
 }
 
@@ -552,16 +556,27 @@ function initialPasswordFor(person) {
 }
 
 function setAuthenticationView(isAuthenticated) {
-  document.body.classList.remove('auth-pending', 'auth-locked', 'authenticated');
-  document.body.classList.add(isAuthenticated ? 'authenticated' : 'auth-locked');
+  const needsInit = Boolean(window.ZhuxuServer?.active && window.ZhuxuServer.needsInit && !authenticatedUserId);
+  document.body.classList.remove('auth-pending', 'auth-locked', 'auth-init', 'authenticated');
+  document.body.classList.add(needsInit ? 'auth-init' : isAuthenticated ? 'authenticated' : 'auth-locked');
   $('#appShell').setAttribute('aria-hidden', isAuthenticated ? 'false' : 'true');
-  $('#loginScreen').setAttribute('aria-hidden', isAuthenticated ? 'true' : 'false');
-  if (!isAuthenticated) setTimeout(() => $('#loginForm').elements.account.focus(), 0);
+  if (!isAuthenticated) setTimeout(() => (needsInit ? $('#initForm').elements.projectName : $('#loginForm').elements.account).focus(), 0);
 }
 
-async function loginWithCredentials(account, password, remember = false) {
+function populateLoginProjects() {
+  if (!window.ZhuxuServer?.active || authenticatedUserId) return;
+  const select = $('#loginProjectSelect');
+  const projects = window.ZhuxuServer.projects || [];
+  if (!select) return;
+  const remembered = localStorage.getItem('zhuxu-auth-project') || '';
+  select.innerHTML = projects.map(project => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}${project.code ? `（${escapeHtml(project.code)}）` : ''}</option>`).join('');
+  if (projects.some(project => project.id === remembered)) select.value = remembered;
+  if (select.selectedOptions[0]) $('#loginProjectName').textContent = select.selectedOptions[0].textContent.trim();
+}
+
+async function loginWithCredentials(account, password, remember = false, projectId = '') {
   if (window.ZhuxuServer?.active) {
-    const user = await window.ZhuxuServer.login(account, password, remember);
+    const user = await window.ZhuxuServer.login(account, password, projectId, remember);
     authenticatedUserId = String(user.id);
     currentUserId = authenticatedUserId;
     return { ...user, serverReload: true };
@@ -649,6 +664,25 @@ async function loadAccounts() {
   } catch (error) {
     container.innerHTML = `<p class="resource-empty">账号加载失败：${escapeHtml(error.message || '请稍后重试')}</p>`;
   }
+}
+
+async function refreshOrganizationFromServer() {
+  if (!window.ZhuxuServer?.active) return;
+  try {
+    const payload = await window.ZhuxuServer.request('/api/bootstrap');
+    window.ZhuxuServer.hydrate(payload.state);
+    organization = JSON.parse(localStorage.getItem('zhuxu-organization') || 'null') || [];
+    renderCurrentUser();
+    if ($('#team').classList.contains('active')) renderSubview('team');
+  } catch (error) { /* 刷新失败时保留现有组织 */ }
+}
+
+function openNewProjectDialog() {
+  const form = $('#newProjectForm');
+  if (!form) return;
+  form.reset();
+  $('#newProjectError').textContent = '';
+  $('#newProjectDialog').showModal();
 }
 
 function openAccountDialog(accountId = null) {
@@ -913,7 +947,7 @@ function renderDocumentSummary() {
   $('#documentStripAlert').textContent = `${stats.pending} 项待闭环`;
   $('#documentBadge').textContent = stats.pending;
   const pendingChain = Object.entries(documentState).find(([, group]) => group.sampleStatus !== 'qualified');
-  $('#documentStripSummary').textContent = pendingChain ? `${documentChainConfigs[pendingChain[0]]?.label || '材料'}报告未闭环，已关联${pendingChain[1].linkedProcess}` : '各材料送检及验收资料均已闭环，关联工序可继续';
+  $('#documentStripSummary').textContent = Object.keys(documentState).length ? (pendingChain ? `${documentChainConfigs[pendingChain[0]]?.label || '材料'}报告未闭环，已关联${pendingChain[1].linkedProcess}` : '各材料送检及验收资料均已闭环，关联工序可继续') : '尚未登记材料进场，资料链待生成';
 }
 
 function registerSteelArrival() {
@@ -1021,7 +1055,7 @@ function renderFollowupsBody() {
       <article class="followup-kpi"><span>累计提醒</span><strong>${reminded}</strong><p>催办记录全程留痕</p></article>
     </div>
     <div class="followup-board">
-      ${pending.map(item => `<article class="followup-card ${item.urgency}"><i></i><div><h3>${escapeHtml(item.title)}</h3><div class="followup-card-meta"><span>${item.category}</span><span>区域：${item.zone}</span><span>要求完成：${new Date(item.due).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></div><div class="followup-route">${escapeHtml(item.requester)} → ${escapeHtml(item.owner)}</div>${item.note ? `<p class="followup-card-note">${escapeHtml(item.note)}</p>` : ''}</div><div class="followup-card-actions"><em class="urgency-badge ${item.urgency}">${item.urgency === 'urgent' ? '紧急' : '一般'}</em><button class="remind-button" data-remind-followup="${item.id}">再次催办</button><span class="followup-count">已提醒 ${item.reminders} 次</span></div></article>`).join('')}
+      ${pending.map(item => `<article class="followup-card ${item.urgency}"><i></i><div><h3>${escapeHtml(item.title)}</h3><div class="followup-card-meta"><span>${item.category}</span><span>区域：${item.zone}</span><span>要求完成：${new Date(item.due).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></div><div class="followup-route">${escapeHtml(item.requester)} → ${escapeHtml(item.owner)}</div>${item.note ? `<p class="followup-card-note">${escapeHtml(item.note)}</p>` : ''}</div><div class="followup-card-actions"><em class="urgency-badge ${item.urgency}">${item.urgency === 'urgent' ? '紧急' : '一般'}</em><button class="remind-button" data-remind-followup="${item.id}">再次催办</button><span class="followup-count">已提醒 ${item.reminders} 次</span></div></article>`).join('') || '<div class="resource-empty">当前没有待响应的催办事项</div>'}
     </div>`;
 }
 
@@ -1298,7 +1332,7 @@ function populateResourcePlanRoles(type = 'material') {
 
 function populateApproverSelect(select, role, selectedValue = '') {
   const people = organization.filter(person => person.role === role);
-  select.innerHTML = people.map(person => `<option value="${escapeHtml(`${person.name} · ${person.role}`)}">${escapeHtml(person.name)} · ${escapeHtml(person.role)}</option>`).join('');
+  select.innerHTML = people.length ? people.map(person => `<option value="${escapeHtml(`${person.name} · ${person.role}`)}">${escapeHtml(person.name)} · ${escapeHtml(person.role)}</option>`).join('') : '<option value="待指定">待指定（尚未配置该岗位）</option>';
   if (selectedValue && [...select.options].some(option => option.value === selectedValue)) select.value = selectedValue;
 }
 
@@ -1751,6 +1785,15 @@ function openConcealedAcceptanceDialog(item = null) {
 }
 
 function renderDocumentsBody() {
+  if (!Object.keys(documentState).length) {
+    return `<div class="document-overview">
+      <article class="document-kpi"><span>资料完成率</span><strong>0<small>%</small></strong><p>0 / 0 项已闭环</p></article>
+      <article class="document-kpi"><span>与材料进场关联</span><strong>0<small>批材料</small></strong><p>0 条资料与工序链路</p></article>
+      <article class="document-kpi risk"><span>阻塞施工节点</span><strong>0<small>项</small></strong><p>当前无资料门禁阻塞</p></article>
+    </div>
+    <section class="document-list-panel"><div class="document-panel-heading"><div><h2>材料与施工资料链</h2><p>材料进场、送检、报告和使用部位形成可追溯放行关系</p></div><button type="button" class="secondary-button" data-jump-materials>进入材料设备</button></div><div class="resource-empty">尚未登记任何材料进场批次。资料链会在材料进场登记后自动生成，请先在“材料设备”中登记材料到场。</div></section>
+    <section class="document-list-panel concealed-acceptance-panel"><div class="document-panel-heading"><div><h2>施工过程隐蔽验收</h2><p>验收资料和现场照片共同形成工序放行依据</p></div><button type="button" data-new-concealed>＋ 新增隐蔽验收</button></div><div class="concealed-acceptance-list"><div class="resource-empty">还没有隐蔽验收记录</div></div></section>`;
+  }
   const stats = getDocumentStats();
   const chain = documentState[activeDocumentChain];
   const config = documentChainConfigs[activeDocumentChain];
@@ -1809,7 +1852,7 @@ function renderQualityBody() {
     <button type="button" class="info-card interactive ${activeQualityFilter === 'pending' ? 'active' : ''}" data-quality-filter="pending"><h3>待整改</h3><div class="big">${pending.length} 项</div><p>其中 ${pending.filter(item => item.critical).length} 项影响关键节点 · 点击查看内容</p><div class="mini-bar"><i style="width:${Math.min(100, pending.length / Math.max(qualityItems.length,1) * 100)}%"></i></div></button>
     <button type="button" class="info-card interactive"><h3>一次验收通过率</h3><div class="big">93.6%</div><p>较上月提升 2.4%，质量问题闭环留痕</p><div class="mini-bar"><i style="width:94%"></i></div></button>
     <button type="button" class="info-card interactive ${activeQualityFilter === 'safety' ? 'active' : ''}" data-quality-filter="safety"><h3>安全巡检</h3><div class="big">${safetyInspections.length} 次</div><p>${openInspectionIssues} 项问题待逐一闭环 · 点击查看巡检批次</p><div class="mini-bar"><i style="width:${Math.max(15, Math.round((1 - openInspectionIssues / Math.max(1, safetyInspections.reduce((sum,item)=>sum+item.issues.length,0))) * 100))}%"></i></div></button>
-  </div><section class="quality-list-panel"><div class="quality-list-heading"><div><strong>${activeQualityFilter === 'pending' ? '待整改内容' : activeQualityFilter === 'safety' ? '安全巡检记录' : '全部质量检查记录'}</strong><small>${activeQualityFilter === 'safety' ? '每次巡检为一条主记录，统一回复下逐项记录整改内容与前后照片' : '检查记录、整改前后照片及复验结果均可编辑查看'}</small></div><div><button type="button" data-quality-filter="all">查看质量检查</button>${activeQualityFilter === 'safety' ? '<button type="button" data-new-inspection>新增巡检</button>' : ''}</div></div><div class="quality-check-list">${activeQualityFilter === 'safety' ? inspectionRows : qualityRows}</div></section>`;
+  </div><section class="quality-list-panel"><div class="quality-list-heading"><div><strong>${activeQualityFilter === 'pending' ? '待整改内容' : activeQualityFilter === 'safety' ? '安全巡检记录' : '全部质量检查记录'}</strong><small>${activeQualityFilter === 'safety' ? '每次巡检为一条主记录，统一回复下逐项记录整改内容与前后照片' : '检查记录、整改前后照片及复验结果均可编辑查看'}</small></div><div><button type="button" data-quality-filter="all">查看质量检查</button>${activeQualityFilter === 'safety' ? '<button type="button" data-new-inspection>新增巡检</button>' : ''}</div></div><div class="quality-check-list">${activeQualityFilter === 'safety' ? inspectionRows : qualityRows}${(!activeQualityFilter || activeQualityFilter === 'all') && !qualityRows ? '<div class="resource-empty">暂无质量检查记录</div>' : ''}${activeQualityFilter === 'safety' && !inspectionRows ? '<div class="resource-empty">暂无安全巡检记录</div>' : ''}</div></section>`;
 }
 
 function openQualityCheckDialog(item = null, type = 'quality') {
@@ -1897,8 +1940,8 @@ function renderTeamBody() {
   const attendanceAction = attendanceManager ? `<button type="button" data-attendance>上传考勤表</button>` : '';
   const supplementAction = record => attendanceManager ? `<button type="button" class="attendance-supplement-action ${attendanceSupplementWindow(record).allowed ? '' : 'expired'}" data-supplement-attendance="${record.id}" ${attendanceSupplementWindow(record).allowed ? '' : 'disabled'}>${attendanceSupplementLabel(record)}</button>` : '';
   const accountPanel = serverActive && admin ? `<section class="account-manage-panel"><div class="section-line-heading"><div><strong>账号管理</strong><small>维护登录账号与登录状态；新账号初始密码为手机号后六位，首次登录强制修改密码</small></div><button type="button" data-new-account>新增账号</button></div><div class="account-manage-list" id="accountManageList">正在加载项目账号…</div></section>` : '';
-  return `<section class="management-panel"><div class="section-line-heading"><div><strong>项目管理人员</strong><small>账号职位决定任务自动匹配；姓名、职务、管理范围和电话可维护</small></div>${organizationAction}</div><div class="management-roster">${organization.map(person => `<article><div class="management-avatar">${escapeHtml(person.name.slice(0,1))}</div><div><strong>${escapeHtml(person.name)}</strong><span>${escapeHtml(person.role)}</span><p>${escapeHtml(person.scope || '待确认管理范围')}</p><a href="tel:${String(person.phone || '').replace(/\s/g,'')}">${escapeHtml(person.phone || '未登记电话')}</a></div></article>`).join('')}</div></section>
-    <section class="workforce-panel"><div class="section-line-heading"><div><strong>现场班组与每日考勤</strong><small>现场人数以劳资员每日上传的实名制打卡情况表为准；核对补录仅在登记后 24 小时内开放</small></div><div><button type="button" data-attendance-history>查看往期考勤</button>${attendanceAction}<button type="button" data-team-allocation>班组调配</button></div></div><div class="card-collection workforce-cards"><article class="info-card"><h3>现场人员</h3><div class="big">${latest.actual} 人</div><p>${latest.date} 打卡 · 计划投入 ${latest.planned} 人</p><div class="mini-bar"><i style="width:${Math.min(100,ratio)}%"></i></div></article><article class="info-card"><h3>饱和班组</h3><div class="big">8 / 12</div><p>木工班组存在缺员，建议协调补充</p><div class="mini-bar"><i style="width:67%"></i></div></article><article class="info-card"><h3>人均有效工时</h3><div class="big">7.2 h</div><p>较上周提升 0.4 小时</p><div class="mini-bar"><i style="width:82%"></i></div></article></div><div class="attendance-history"><div><strong>最近考勤登记</strong><button type="button" data-attendance-history>全部 ${attendanceRecords.length} 天</button></div>${attendanceRecords.slice(0,5).map(record => { const windowState = attendanceSupplementWindow(record); return `<div class="attendance-history-entry"><button type="button" data-attendance-record="${record.id}"><b>${record.date}</b><span>${record.actual} / ${record.planned} 人 · ${escapeHtml(record.officer)}</span><em>${escapeHtml(record.note || '考勤纪律正常')}</em><i>查看详情</i></button>${supplementAction(record)}</div>`; }).join('')}</div></section>${accountPanel}`;
+  return `<section class="management-panel"><div class="section-line-heading"><div><strong>项目管理人员</strong><small>账号职位决定任务自动匹配；姓名、职务、管理范围和电话可维护</small></div>${organizationAction}</div><div class="management-roster">${organization.length ? organization.map(person => `<article><div class="management-avatar">${escapeHtml(person.name.slice(0,1))}</div><div><strong>${escapeHtml(person.name)}</strong><span>${escapeHtml(person.role)}</span><p>${escapeHtml(person.scope || '待确认管理范围')}</p><a href="tel:${String(person.phone || '').replace(/\s/g,'')}">${escapeHtml(person.phone || '未登记电话')}</a></div></article>`).join('') : '<p class="resource-empty">尚未建立组织机构，请由项目经理在“账号管理”中新增人员。</p>'}</div></section>
+    <section class="workforce-panel"><div class="section-line-heading"><div><strong>现场班组与每日考勤</strong><small>现场人数以劳资员每日上传的实名制打卡情况表为准；核对补录仅在登记后 24 小时内开放</small></div><div><button type="button" data-attendance-history>查看往期考勤</button>${attendanceAction}<button type="button" data-team-allocation>班组调配</button></div></div><div class="card-collection workforce-cards"><article class="info-card"><h3>现场人员</h3><div class="big">${latest.actual} 人</div><p>${latest.date} 打卡 · 计划投入 ${latest.planned} 人</p><div class="mini-bar"><i style="width:${Math.min(100,ratio)}%"></i></div></article><article class="info-card"><h3>饱和班组</h3><div class="big">8 / 12</div><p>木工班组存在缺员，建议协调补充</p><div class="mini-bar"><i style="width:67%"></i></div></article><article class="info-card"><h3>人均有效工时</h3><div class="big">7.2 h</div><p>较上周提升 0.4 小时</p><div class="mini-bar"><i style="width:82%"></i></div></article></div><div class="attendance-history"><div><strong>最近考勤登记</strong><button type="button" data-attendance-history>全部 ${attendanceRecords.length} 天</button></div>${attendanceRecords.length ? attendanceRecords.slice(0,5).map(record => { const windowState = attendanceSupplementWindow(record); return `<div class="attendance-history-entry"><button type="button" data-attendance-record="${record.id}"><b>${record.date}</b><span>${record.actual} / ${record.planned} 人 · ${escapeHtml(record.officer)}</span><em>${escapeHtml(record.note || '考勤纪律正常')}</em><i>查看详情</i></button>${supplementAction(record)}</div>`; }).join('') : '<p class="resource-empty">暂无考勤记录，请劳资员上传每日实名制打卡表。</p>'}</div></section>${accountPanel}`;
 }
 
 function openAttendanceDialog() {
@@ -2314,7 +2357,7 @@ function renderSubview(id) {
     }[config.content];
     body = `<div class="card-collection">${cards.map(c=>`<article class="info-card"><h3>${c[0]}</h3><div class="big">${c[1]}</div><p>${c[2]}</p><div class="mini-bar"><i style="width:${c[3]}%"></i></div></article>`).join('')}</div>`;
   }
-  container.innerHTML = `<div class="subview-shell"><div class="subview-heading"><div><p class="eyebrow">云河智造中心一期</p><h1 id="${id}Title">${config.title}</h1><p>${config.desc}</p></div><button class="primary-button subview-action">＋ ${config.action}</button></div>${body}</div>`;
+  container.innerHTML = `<div class="subview-shell"><div class="subview-heading"><div><p class="eyebrow">${escapeHtml(currentProject.name)}</p><h1 id="${id}Title">${config.title}</h1><p>${config.desc}</p></div><button class="primary-button subview-action">＋ ${config.action}</button></div>${body}</div>`;
   $('.subview-action', container).addEventListener('click', () => {
     if (id === 'intake') openDailyFeedbackDialog();
     else if (id === 'technical') openTechnicalDocumentDialog();
@@ -2548,7 +2591,7 @@ function createMorningBrief() {
 }
 
 function exportData() {
-  const data = { project: '云河智造中心一期', exportedAt: new Date().toISOString(), stages, tasks, issues, intakeRecords, technicalDocuments, costDocuments: hasCostAccess() ? costDocuments : [], dailyExecution, dailyCoordination, documentState, concealedAcceptances, resourceEntries, resourcePlans, qualityChecks, safetyInspections, organization, attendanceRecords, siteRecords };
+  const data = { project: currentProject.name, projectId: currentProject.id, exportedAt: new Date().toISOString(), stages, tasks, issues, intakeRecords, technicalDocuments, costDocuments: hasCostAccess() ? costDocuments : [], dailyExecution, dailyCoordination, documentState, concealedAcceptances, resourceEntries, resourcePlans, qualityChecks, safetyInspections, organization, attendanceRecords, siteRecords };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `筑序-项目数据-${new Date().toISOString().slice(0,10)}.json`; link.click(); URL.revokeObjectURL(url); showToast('项目数据已导出');
 }
@@ -2563,6 +2606,7 @@ function initializeApp() {
   resourcePlans.forEach(syncMaterialApprovalNotifications);
   persistResources(); persistFollowups();
   setAuthenticationView(Boolean(authenticatedUserId));
+  populateLoginProjects();
   navigate('intake');
   if (window.ZhuxuServer?.active) {
     $('.login-version').textContent = '筑序 v1.0 · 项目局域网多人版';
@@ -2571,6 +2615,7 @@ function initializeApp() {
   } else {
     $('.login-version').textContent = '筑序 v1.0 · 本机离线演示版';
   }
+  if ($('#projectButtonName')) $('#projectButtonName').textContent = currentProject.name;
 
   $('#loginForm').addEventListener('submit', async event => {
     event.preventDefault();
@@ -2581,7 +2626,7 @@ function initializeApp() {
     const submit = form.querySelector('[type="submit"]');
     submit.disabled = true;
     try {
-      const person = await loginWithCredentials(account, password, form.elements.remember.checked);
+      const person = await loginWithCredentials(account, password, form.elements.remember.checked, form.elements.projectId?.value || '');
       if (!person) { $('#loginError').textContent = '账号或密码不正确，请核对组织架构登记信息。'; form.elements.password.select(); return; }
       if (person.serverReload) { location.reload(); return; }
       $('#loginError').textContent = '';
@@ -2591,6 +2636,36 @@ function initializeApp() {
       $('#loginError').textContent = error.message || '无法连接项目服务器，请稍后重试。';
       form.elements.password.select();
     } finally { submit.disabled = false; }
+  });
+  $('#loginProjectSelect').addEventListener('change', event => {
+    const option = event.target.selectedOptions[0];
+    if (option) $('#loginProjectName').textContent = option.textContent.trim();
+  });
+  $('#initForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const errorEl = $('#initError');
+    errorEl.textContent = '';
+    const projectName = form.elements.projectName.value.trim();
+    const adminName = form.elements.adminName.value.trim();
+    const adminAccount = form.elements.adminAccount.value.trim();
+    const adminPhone = form.elements.adminPhone.value.trim();
+    const adminPassword = form.elements.adminPassword.value;
+    const confirmPassword = form.elements.adminPassword2.value;
+    if (!projectName) { errorEl.textContent = '请填写项目名称。'; form.elements.projectName.focus(); return; }
+    if (!adminName || !adminAccount) { errorEl.textContent = '请填写管理员姓名和登录账号。'; (adminName ? form.elements.adminAccount : form.elements.adminName).focus(); return; }
+    const policyError = passwordPolicyError(adminPassword);
+    if (policyError) { errorEl.textContent = `管理员密码：${policyError}。`; form.elements.adminPassword.focus(); return; }
+    if (adminPassword !== confirmPassword) { errorEl.textContent = '两次输入的密码不一致。'; form.elements.adminPassword2.focus(); return; }
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true; submit.textContent = '正在建立项目…';
+    try {
+      await window.ZhuxuServer.initProject({ projectName, projectCode: form.elements.projectCode.value.trim(), adminName, adminAccount, adminPhone, adminPassword });
+      location.reload();
+    } catch (error) {
+      errorEl.textContent = error.message || '初始化失败，请稍后重试。';
+      submit.disabled = false; submit.textContent = '建立项目并进入系统 →';
+    }
   });
   $('#togglePassword').addEventListener('click', event => {
     const input = $('#loginForm').elements.password;
@@ -2630,6 +2705,31 @@ function initializeApp() {
     } finally { submit.disabled = false; submit.textContent = '确认修改密码'; }
   });
 
+  $('#newProjectForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const errorEl = $('#newProjectError');
+    errorEl.textContent = '';
+    const projectName = form.elements.projectName.value.trim();
+    const adminName = form.elements.adminName.value.trim();
+    const adminAccount = form.elements.adminAccount.value.trim();
+    const adminPhone = form.elements.adminPhone.value.trim();
+    const adminPassword = form.elements.adminPassword.value;
+    if (!projectName || !adminName || !adminAccount) { errorEl.textContent = '请填写项目名称、管理员姓名和账号。'; return; }
+    const policyError = passwordPolicyError(adminPassword);
+    if (policyError) { errorEl.textContent = `管理员密码：${policyError}。`; form.elements.adminPassword.focus(); return; }
+    if (adminPassword !== form.elements.adminPassword2.value) { errorEl.textContent = '两次输入的密码不一致。'; form.elements.adminPassword2.focus(); return; }
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true; submit.textContent = '建立中…';
+    try {
+      const result = await window.ZhuxuServer.request('/api/projects', { method: 'POST', body: JSON.stringify({ projectName, projectCode: form.elements.projectCode.value.trim(), adminName, adminAccount, adminPhone, adminPassword }) });
+      form.reset(); $('#newProjectDialog').close();
+      showToast(`新项目“${result.project.name}”已建立，管理员账号 ${result.adminAccount} 可登录（当前账号仍在本项目）`);
+    } catch (error) {
+      errorEl.textContent = error.message || '建立项目失败，请重试';
+    } finally { submit.disabled = false; submit.textContent = '建立新项目'; }
+  });
+
   $('#accountForm').addEventListener('submit', async event => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -2644,6 +2744,7 @@ function initializeApp() {
       else await window.ZhuxuServer.request('/api/accounts', { method: 'POST', body: JSON.stringify(payload) });
       form.reset(); $('#accountDialog').close();
       showToast(accountId ? '账号信息已更新' : '账号已创建，初始密码为登记手机号后六位');
+      await refreshOrganizationFromServer();
       if ($('#team').classList.contains('active')) renderSubview('team');
     } catch (error) {
       showToast(error.message || '保存失败，请重试');
@@ -2667,6 +2768,7 @@ function initializeApp() {
         showToast(disable ? '账号已禁用，该账号的会话已失效' : '账号已启用，可重新登录');
       }
       $('#accountConfirmDialog').close();
+      await refreshOrganizationFromServer();
       if ($('#team').classList.contains('active')) renderSubview('team');
     } catch (error) {
       showToast(error.message || '操作失败，请重试');
@@ -2689,7 +2791,10 @@ function initializeApp() {
   $('#focusIssueButton').addEventListener('click', () => showToast('建议：联系监理提前 30 分钟到场，并将浇筑前检查并行开展'));
   $('#adoptInsightButton').addEventListener('click', event => { event.currentTarget.textContent = '✓ 已采纳，等待计划确认'; event.currentTarget.disabled = true; showToast('建议已加入明日计划草案'); });
   $('#notificationButton').addEventListener('click', () => showToast(`${followups.filter(item => item.status !== 'done').length} 条协作或资料待办，另有 1 条验收提醒`));
-  $('#projectButton').addEventListener('click', () => showToast('当前原型仅载入“云河智造中心一期”'));
+  $('#projectButton').addEventListener('click', () => {
+    if (serverMode && isServerAccountAdmin()) { openNewProjectDialog(); }
+    else showToast(`当前项目：${currentProject.name}${currentProject.code ? `（${currentProject.code}）` : ''}`);
+  });
   $('[data-gate-documents]').addEventListener('click', () => { pendingTaskTransition = null; activeDocumentChain = activeGateChain; $('#documentGateDialog').close(); navigate('documents'); });
   $$('[data-close-dialog]').forEach(button => button.addEventListener('click', () => button.closest('dialog').close()));
   $('#attachmentPreviewDialog').addEventListener('close', () => {

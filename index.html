@@ -14,7 +14,7 @@
     <div class="login-field-panel">
       <div class="login-brand"><div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div><div><strong>筑序</strong><small>施工效率驾驶舱 · 正式版</small></div></div>
       <div class="login-thesis">
-        <span>云河智造中心一期</span>
+        <span id="loginProjectName">云河智造中心一期</span>
         <h1>让每一道工序，沿责任链准时闭环。</h1>
         <p>进度、任务、材料、资料、质量安全与组织架构统一协同，现场信息有来源、任务有责任人、节点有放行依据。</p>
       </div>
@@ -29,13 +29,54 @@
         <p class="login-eyebrow">项目账号登录</p>
         <h2 id="loginTitle">进入施工协同平台</h2>
         <p class="login-description">使用组织架构中登记的个人账号登录，系统将按账号职位加载任务和审批权限。</p>
+        <label>登录项目<select name="projectId" id="loginProjectSelect"></select></label>
         <label>登录账号<input name="account" autocomplete="username" required placeholder="例如：chen.pm"></label>
         <label>登录密码<div class="password-field"><input type="password" name="password" autocomplete="current-password" required placeholder="请输入密码"><button type="button" id="togglePassword" aria-label="显示密码">显示</button></div></label>
         <div class="login-options"><label><input type="checkbox" name="remember"> 在本机保持登录</label><span>初始密码为登记手机号后六位</span></div>
         <p class="login-error" id="loginError" role="alert" aria-live="polite"></p>
         <button type="submit" class="login-submit">登录平台 <span>→</span></button>
-        <div class="login-help"><strong>首次登录</strong><p>局域网多人版首次登录必须修改初始密码；请向项目经理确认账号及登记手机号。</p></div>
-        <small class="login-version">筑序 v1.0 · 本地正式演示版</small>
+        <div class="login-help"><strong>首次登录</strong><p>首次登录必须修改初始密码；账号由项目经理在组织架构中建立并授权对应项目。</p></div>
+        <small class="login-version">筑序 v1.0 · 项目局域网多人版</small>
+      </form>
+    </div>
+  </section>
+
+  <section class="login-screen" id="initScreen" aria-labelledby="initTitle" hidden>
+    <div class="login-field-panel">
+      <div class="login-brand"><div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div><div><strong>筑序</strong><small>施工效率驾驶舱 · 正式版</small></div></div>
+      <div class="login-thesis">
+        <span>新项目首次启动</span>
+        <h1>开工第一步：建立项目与组织。</h1>
+        <p>创建项目并登记项目经理账号；之后在组织架构中新增人员，系统自动为其生成登录账号和初始密码。</p>
+      </div>
+      <ol class="login-chain" aria-label="初始化流程">
+        <li><b>01</b><span>建立项目</span></li><li><b>02</b><span>创建管理员</span></li><li><b>03</b><span>组织架构建人</span></li><li><b>04</b><span>自动生成账号</span></li>
+      </ol>
+      <div class="login-edition"><i></i><span>项目内网使用</span><i></i><span>按项目隔离数据</span></div>
+    </div>
+    <div class="login-form-panel">
+      <form class="login-form" id="initForm" novalidate>
+        <div class="login-mobile-brand"><div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div><strong>筑序</strong></div>
+        <p class="login-eyebrow">新项目初始化</p>
+        <h2 id="initTitle">建立项目并创建管理员</h2>
+        <p class="login-description">首次启动的系统还没有任何项目。请建立新项目并登记第一位管理员（项目经理），之后即可由该账号进入系统建立组织机构。</p>
+        <label>项目名称<input name="projectName" required maxlength="60" placeholder="例如：云湖科创中心一期"></label>
+        <div class="form-grid">
+          <label>项目编码<input name="projectCode" maxlength="30" placeholder="例如：YH-2026-01（可选）"></label>
+          <label>管理员姓名<input name="adminName" required maxlength="30" placeholder="项目经理姓名"></label>
+        </div>
+        <div class="form-grid">
+          <label>管理员账号<input name="adminAccount" required maxlength="40" placeholder="例如：zhang.pm" autocomplete="off"></label>
+          <label>管理员手机号<input name="adminPhone" required maxlength="20" placeholder="用于联系与后续重置密码"></label>
+        </div>
+        <div class="form-grid">
+          <label>管理员密码<input type="password" name="adminPassword" autocomplete="new-password" required placeholder="至少 8 位，含字母和数字"></label>
+          <label>确认密码<input type="password" name="adminPassword2" autocomplete="new-password" required placeholder="再次输入密码"></label>
+        </div>
+        <p class="login-error" id="initError" role="alert" aria-live="polite"></p>
+        <button type="submit" class="login-submit">建立项目并进入系统 <span>→</span></button>
+        <div class="login-help"><strong>之后如何添加人员？</strong><p>进入系统后，在“组织架构 → 账号管理”中新增人员，系统自动生成登录账号；初始密码为登记手机号后六位，首次登录时强制修改。</p></div>
+        <small class="login-version">筑序 v1.0 · 项目局域网多人版</small>
       </form>
     </div>
   </section>
@@ -79,7 +120,7 @@
         <button class="global-back-button" id="globalBackButton" aria-label="返回每日任务执行首页" title="返回每日任务执行首页"><span>←</span><b>返回首页</b></button>
         <div class="project-switcher">
           <span>当前项目</span>
-          <button id="projectButton">云河智造中心一期 <span>⌄</span></button>
+          <button id="projectButton"><span id="projectButtonName">云河智造中心一期</span> <span>⌄</span></button>
         </div>
         <div class="topbar-actions">
           <div class="sync-state"><i></i><span>数据已同步</span></div>
@@ -692,6 +733,19 @@
       <input type="hidden" id="accountConfirmAction"><input type="hidden" id="accountConfirmId">
       <p class="dialog-description" id="accountConfirmCopy"></p>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="button" class="primary-button" id="accountConfirmSubmit">确认</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="newProjectDialog">
+    <form id="newProjectForm" method="dialog">
+      <div class="dialog-heading"><div><span>多项目管理</span><h2>建立新的项目系统</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="dialog-description">新项目将拥有独立的组织架构与数据空间。创建时登记的项目经理账号将作为该项目首位管理员，可在其中建立组织机构并为人员生成登录账号。</p>
+      <div class="form-grid"><label>项目名称<input name="projectName" required maxlength="60" placeholder="例如：云湖科创中心二期"></label><label>项目编码<input name="projectCode" maxlength="30" placeholder="例如：YH-2026-02（可选）"></label></div>
+      <div class="form-grid"><label>管理员姓名<input name="adminName" required maxlength="30" placeholder="新项目经理姓名"></label><label>管理员账号<input name="adminAccount" required maxlength="40" placeholder="例如：li.pm" autocomplete="off"></label></div>
+      <label>管理员手机号<input name="adminPhone" required maxlength="20" placeholder="用于联系与后续重置密码"></label>
+      <div class="form-grid"><label>管理员密码<input type="password" name="adminPassword" autocomplete="new-password" required placeholder="至少 8 位，含字母和数字"></label><label>确认密码<input type="password" name="adminPassword2" autocomplete="new-password" required placeholder="再次输入密码"></label></div>
+      <p class="login-error" id="newProjectError" role="alert" aria-live="polite"></p>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">建立新项目</button></div>
     </form>
   </dialog>
 
