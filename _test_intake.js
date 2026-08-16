@@ -114,10 +114,9 @@ async function login(page) {
   if (!(await page.locator('#technicalDocumentDetailDialog[open] .technical-document-paper').getByText('梁板洞口附加筋调整', { exact: true }).isVisible())) throw new Error('技术文件详情正文未显示');
   await page.locator('#technicalDocumentDetailDialog [data-close-dialog]').first().click();
   await page.locator('#technical [data-technical-overview-filter="drawing"]').click();
-  if (await page.locator('#technical .technical-building-folders [data-technical-building]').count() !== 1) throw new Error('施工图未按单体建立文件夹');
-  await page.locator('#technical .technical-building-folders [data-technical-building="3#楼"]').click();
-  if (await page.locator('#technical .technical-file-row[data-technical-document]').count() !== 1) throw new Error('单体文件夹内未显示施工图');
-  await page.locator('#technical .technical-file-row[data-technical-document]').click();
+  if (await page.locator('#technical .drawing-building-group').count() !== 1) throw new Error('施工图未按单体建立文件夹');
+  if (await page.locator('#technical .drawing-building-group').filter({ hasText: '3#楼' }).locator('.drawing-file-row').count() !== 1) throw new Error('单体文件夹内未直接显示施工图');
+  await page.locator('#technical .drawing-building-group').filter({ hasText: '3#楼' }).locator('.drawing-file-row').first().click();
   if (!(await page.locator('#technicalDocumentDetailDialog[open]').getByText('施工图原文件', { exact: false }).isVisible())) throw new Error('施工图详情不能查看原文件');
   await page.locator('#technicalDocumentDetailDialog [data-close-dialog]').first().click();
   await page.screenshot({ path: path.join(root, 'qa-technical-folders.png'), fullPage: true });
