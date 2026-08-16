@@ -345,6 +345,7 @@ let activeResourceTab = 'materials';
 let activeQualityFilter = 'all';
 let activeIntakeFilter = 'all';
 let activeTechnicalFilter = 'all';
+let activeTechnicalSearch = '';
 let activeCostFilter = 'all';
 let activeExecutionDate = dailyDateKey;
 let editingResourcePlanId = null;
@@ -1230,27 +1231,46 @@ function technicalBuildingName(documentItem) {
 
 function renderTechnicalDocumentsBody() {
   const types = [['drawing','施工图纸'],['change','设计变更'],['contact','联系函'],['instruction','指令单']];
-  const drawings = technicalDocuments.filter(item => item.type === 'drawing');
-  const drawingFolders = [...new Set([...drawingBuildings, ...drawings.map(technicalBuildingName)])].sort((a,b) => a.localeCompare(b,'zh-CN'));
-  const drawingBrowser = activeTechnicalFilter === 'drawing' ? renderDrawingBrowser(drawings, drawingFolders) : '';
-  const visible = technicalDocuments.filter(item => activeTechnicalFilter === 'all' || item.type === activeTechnicalFilter).sort((a,b) => String(b.issuedAt).localeCompare(String(a.issuedAt)));
   return `<section class="technical-file-overview"><div><span>TECHNICAL FILE REGISTER</span><h2>项目技术文件统一入口</h2><p>技术负责人上传原文件并注明适用部位，现场人员可随时查看；关联任务中的变更和指令会突出风险提醒。</p></div><div>${types.map(([key,label]) => `<button type="button" class="${activeTechnicalFilter === key ? 'active' : ''}" data-technical-overview-filter="${key}"><strong>${technicalDocuments.filter(item => item.type === key).length}</strong><span>${label}</span><em>${key === 'drawing' ? '按单体查看' : '直接查看文件'} →</em></button>`).join('')}</div></section>
     <div class="technical-file-tabs">${types.map(([key,label]) => `<button type="button" class="${activeTechnicalFilter === key ? 'active' : ''}" data-technical-filter="${key}">${label}<b>${technicalDocuments.filter(item => item.type === key).length}</b></button>`).join('')}</div>
-    ${drawingBrowser}
-    ${activeTechnicalFilter === 'drawing' ? '' : `<section class="technical-file-register"><div class="technical-file-row header"><span>类别 / 编号</span><span>文件名称与适用范围</span><span>发布人</span><span>发布日期</span><span>原文件</span><span>操作</span></div>${visible.map(item => `<button type="button" class="technical-file-row" data-technical-document="${item.id}"><span><i class="${item.type}">${technicalTypeLabels[item.type]?.slice(0,1) || '技'}</i><b>${escapeHtml(technicalTypeLabels[item.type] || item.type)}${item.profession ? ` · ${escapeHtml(item.profession)}` : ''}</b><small>${escapeHtml(item.code)}</small></span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(technicalBuildingName(item))}${item.profession ? ` · ${escapeHtml(item.profession)}` : ''} · ${escapeHtml(item.scope)}</small></span><span>${escapeHtml(item.issuedBy)}</span><span>${escapeHtml(item.issuedAt)}</span><span>${(item.files || []).length} 个附件</span><em>${item.type === 'drawing' ? '打开图纸' : '查看内容'} →</em></button>`).join('') || '<div class="resource-empty">当前类别还没有技术文件，点击右上角上传；施工图纸可通过“上传图纸文件夹”批量归档。</div>'}</section>`}`;
+    <div class="technical-search-bar"><input type="search" id="technicalSearchInput" placeholder="输入关键字查找：名称、编号、发布人、单体、适用范围、正文" value="${escapeHtml(activeTechnicalSearch)}" autocomplete="off"><span id="technicalSearchCount"></span></div>
+    <div id="technicalListRegion">${renderTechnicalListRegion()}</div>`;
 }
 
-function renderDrawingBrowser(drawings, drawingFolders) {
+function renderTechnicalListRegion() {
+  const keyword = String(activeTechnicalSearch || '').trim().toLowerCase();
+  const match = item => !keyword || `${item.title || ''} ${item.code || ''} ${item.building || ''} ${item.scope || ''} ${item.content || ''} ${item.issuedBy || ''} ${item.profession || ''} ${technicalTypeLabels[item.type] || ''}`.toLowerCase().includes(keyword);
+  const visible = technicalDocuments.filter(item => (activeTechnicalFilter === 'all' || item.type === activeTechnicalFilter) && match(item)).sort((a,b) => String(b.issuedAt).localeCompare(String(a.issuedAt)));
+  const countEl = $('#technicalSearchCount');
+  if (countEl) countEl.textContent = activeTechnicalSearch ? `找到 ${visible.length} 条` : '';
+  if (activeTechnicalFilter === 'drawing') {
+    const drawings = technicalDocuments.filter(item => item.type === 'drawing');
+    const drawingFolders = [...new Set([...drawingBuildings, ...drawings.map(technicalBuildingName)])].sort((a,b) => a.localeCompare(b,'zh-CN'));
+    return renderDrawingBrowser(drawings, drawingFolders, keyword);
+  }
+  return `<section class="technical-file-register"><div class="technical-file-row header"><span>类别 / 编号</span><span>文件名称与适用范围</span><span>发布人</span><span>发布日期</span><span>原文件</span><span>操作</span></div>${visible.map(item => `<button type="button" class="technical-file-row" data-technical-document="${item.id}"><span><i class="${item.type}">${technicalTypeLabels[item.type]?.slice(0,1) || '技'}</i><b>${escapeHtml(technicalTypeLabels[item.type] || item.type)}${item.profession ? ` · ${escapeHtml(item.profession)}` : ''}</b><small>${escapeHtml(item.code)}</small></span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(technicalBuildingName(item))}${item.profession ? ` · ${escapeHtml(item.profession)}` : ''} · ${escapeHtml(item.scope)}</small></span><span>${escapeHtml(item.issuedBy)}</span><span>${escapeHtml(item.issuedAt)}</span><span>${(item.files || []).length} 个附件</span><em>${item.type === 'drawing' ? '打开图纸' : '查看内容'} →</em></button>`).join('') || `<div class="resource-empty">${keyword ? `未找到与“${escapeHtml(activeTechnicalSearch)}”匹配的技术文件` : '当前类别还没有技术文件，点击右上角上传；施工图纸可通过“上传图纸文件夹”批量归档。'}</div>`}</section>`;
+}
+
+function renderDrawingBrowser(drawings, drawingFolders, keyword = '') {
+  const kw = String(keyword || '').trim().toLowerCase();
+  const match = item => !kw || `${item.title || ''} ${item.building || ''} ${item.profession || ''} ${item.scope || ''} ${item.code || ''}`.toLowerCase().includes(kw);
   const professionOrder = [...DRAWING_PROFESSIONS, '其他'];
+  const filteredDrawings = kw ? drawings.filter(match) : drawings;
+  const folders = kw ? [...new Set([...drawingBuildings.filter(building => String(building).toLowerCase().includes(kw)), ...filteredDrawings.map(technicalBuildingName)])].sort((a,b) => a.localeCompare(b,'zh-CN')) : drawingFolders;
   return `<section class="technical-building-browser"><div class="technical-building-heading"><div><span>DRAWING ARCHIVE</span><strong>按单体查看施工图</strong><small>每个单体文件夹下方直接展示按专业分组的图纸，点击图纸即可打开；上传文件夹时可指定归属单体</small></div><button type="button" data-new-drawing-building>＋ 新建单体</button></div>
-    <div class="drawing-building-list">${drawingFolders.map(building => {
-      const items = drawings.filter(item => technicalBuildingName(item) === building);
+    <div class="drawing-building-list">${folders.map(building => {
+      const items = filteredDrawings.filter(item => technicalBuildingName(item) === building);
       const groups = professionOrder.filter(profession => items.some(item => professionLabel(item.profession) === profession));
       const summary = groups.slice(0, 3).map(profession => `${profession} ${items.filter(item => professionLabel(item.profession) === profession).length}`).join(' · ');
       return `<details class="drawing-building-group" ${items.length ? 'open' : ''}><summary><span class="drawing-building-mark">${escapeHtml(building.slice(0, 1))}</span><span><strong>${escapeHtml(building)}</strong><small>${items.length} 张施工图 · ${summary || '空文件夹'}</small></span><em>${items.length ? '点击收起 / 展开' : '空文件夹'}</em></summary>
         <div class="drawing-building-body">${items.length ? groups.map(profession => { const groupItems = items.filter(item => professionLabel(item.profession) === profession); return `<section class="drawing-profession-group"><h4>${escapeHtml(profession)} · ${groupItems.length}</h4>${groupItems.map(item => `<button type="button" class="drawing-file-row" data-technical-document="${item.id}"><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.scope)}${(item.files || []).length ? ` · ${(item.files || []).length} 个附件` : ''}</small></span><em>打开图纸 →</em></button>`).join('')}</section>`; }).join('') : '<p class="resource-empty">空文件夹，可上传图纸或导入文件夹时选择归入。</p>'}</div>
       </details>`;
-    }).join('') || '<div class="resource-empty">还没有施工图文件夹，可点击“新建单体”建立，或上传图纸/文件夹时自动创建。</div>'}</div></section>`;
+    }).join('') || `<div class="resource-empty">${kw ? `未找到与“${escapeHtml(activeTechnicalSearch)}”匹配的施工图` : '还没有施工图文件夹，可点击“新建单体”建立，或上传图纸/文件夹时自动创建。'}</div>`}</div></section>`;
+}
+
+function bindTechnicalInteractions(scope = document) {
+  $$('[data-technical-document]', scope).forEach(button => button.addEventListener('click', () => openTechnicalDocumentDetail(button.dataset.technicalDocument)));
+  $('[data-new-drawing-building]', scope)?.addEventListener('click', () => { $('#drawingNewBuildingError').textContent = ''; $('#drawingNewBuildingForm').reset(); $('#drawingNewBuildingDialog').showModal(); });
 }
 
 function openTechnicalDocumentDialog() {
@@ -2467,8 +2487,15 @@ function renderSubview(id) {
   $$('[data-plan-level]', container).forEach(button => button.addEventListener('click', () => { activePlanLevel = button.dataset.planLevel; renderSubview('schedule'); }));
   $$('[data-technical-filter]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalFilter = activeTechnicalFilter === button.dataset.technicalFilter ? 'all' : button.dataset.technicalFilter; renderSubview('technical'); }));
   $$('[data-technical-overview-filter]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalFilter = activeTechnicalFilter === button.dataset.technicalOverviewFilter ? 'all' : button.dataset.technicalOverviewFilter; renderSubview('technical'); }));
-  $('[data-new-drawing-building]', container)?.addEventListener('click', () => { $('#drawingNewBuildingError').textContent = ''; $('#drawingNewBuildingForm').reset(); $('#drawingNewBuildingDialog').showModal(); });
-  $$('[data-technical-document]', container).forEach(button => button.addEventListener('click', () => openTechnicalDocumentDetail(button.dataset.technicalDocument)));
+  bindTechnicalInteractions(container);
+  $('#technicalSearchInput', container)?.addEventListener('input', event => {
+    activeTechnicalSearch = event.target.value;
+    const region = $('#technicalListRegion');
+    if (region) {
+      region.innerHTML = renderTechnicalListRegion();
+      bindTechnicalInteractions(region);
+    }
+  });
   $$('[data-cost-filter]', container).forEach(button => button.addEventListener('click', () => { activeCostFilter = button.dataset.costFilter; renderSubview('cost'); }));
   $$('[data-cost-overview-filter]', container).forEach(button => button.addEventListener('click', () => { activeCostFilter = button.dataset.costOverviewFilter; renderSubview('cost'); }));
   $$('[data-cost-document]', container).forEach(button => button.addEventListener('click', () => openCostDocumentDetail(button.dataset.costDocument)));

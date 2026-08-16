@@ -236,6 +236,25 @@ async function apiPutRaw(page, path, body) {
   if (!(await pm.locator('#technicalDocumentDetailBody').getByText('首层平面图').first().isVisible())) throw new Error('Drawing detail did not open');
   await pm.locator('#technicalDocumentDetailDialog [data-close-dialog]').first().click();
 
+  // —— 技术文件关键字搜索（设计变更/联系函/指令单等） ——
+  await pm.locator('[data-technical-filter="contact"]').click();
+  await pm.locator('#technicalSearchInput').fill('钢筋验收');
+  await pm.waitForTimeout(200);
+  if (await pm.locator('#technical .technical-file-row[data-technical-document]').count() !== 1) throw new Error('Contact keyword search should return exactly 1 row');
+  await pm.locator('#technicalSearchInput').fill('不存在的关键字xyz');
+  await pm.waitForTimeout(200);
+  if (!(await pm.locator('#technical').getByText('未找到与', { exact: false }).first().isVisible())) throw new Error('Technical search empty state missing');
+  await pm.locator('#technicalSearchInput').fill('');
+  await pm.waitForTimeout(200);
+  if (await pm.locator('#technical .technical-file-row[data-technical-document]').count() !== 1) throw new Error('Clearing search should restore the contact list');
+  // 施工图视图搜索
+  await pm.locator('[data-technical-filter="drawing"]').click();
+  await pm.locator('#technicalSearchInput').fill('首层梁配筋图');
+  await pm.waitForTimeout(200);
+  if (await pm.locator('#technical .drawing-building-group').count() !== 1) throw new Error('Drawing search should narrow to one building group');
+  await pm.locator('#technicalSearchInput').fill('');
+  await pm.waitForTimeout(200);
+
   await pm.locator('[data-view="cost"]').click();
   await pm.locator('#cost .subview-action').click();
   const costForm = pm.locator('#costDocumentForm');
