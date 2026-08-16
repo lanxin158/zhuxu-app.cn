@@ -22,7 +22,7 @@ async function login(page) {
   await page.reload();
   await login(page);
 
-  if (!(await page.locator('#intakeTitle').getByText('每日执行中心').isVisible())) throw new Error('每日执行中心未渲染');
+  if (!(await page.locator('#intakeTitle').getByText('每日任务执行中心').isVisible())) throw new Error('每日执行中心未渲染');
   if (await page.locator('[data-view="dashboard"]').count()) throw new Error('首页仍然保留了总览导航');
   if (!(await page.locator('[data-view="technical"]').isVisible())) throw new Error('侧边栏缺少技术文件入口');
   if (!(await page.locator('[data-view="cost"]').isVisible())) throw new Error('侧边栏缺少成控文件入口');
@@ -32,7 +32,7 @@ async function login(page) {
   if (await page.locator('#intake .today-plan-register article').count() !== 6) throw new Error('今日计划未逐项列出');
   if (await page.locator('#intake .weekly-daily-ledger article').count() !== 7) throw new Error('本周每日完成情况不完整');
   if (await page.locator('#intake .weekly-workforce-ledger article').count() !== 7) throw new Error('本周每日投入人员不完整');
-  if (!(await page.locator('#intake .carryover-board').getByText('昨日未完成计划今日继续完成', { exact: true }).isVisible())) throw new Error('昨日续做清单缺失');
+  if (!(await page.locator('#intake .carryover-board').getByText('昨日未完成计划', { exact: true }).isVisible())) throw new Error('昨日续做清单缺失');
   if (await page.locator('#intake .carryover-item').count() !== 3) throw new Error('昨日续做清单数量不正确');
   if (await page.locator('#intake .carryover-board').getByText('3#楼混凝土浇筑旁站', { exact: false }).count()) throw new Error('指定删除的混凝土旁站仍在昨日续做清单');
   if (!(await page.locator('#intake .carryover-item').first().getByText('昨日完成', { exact: true }).isVisible())) throw new Error('昨日完成百分比标签缺失');
@@ -60,7 +60,7 @@ async function login(page) {
 
   await page.locator('#intake .carryover-item').first().click();
   if (!(await page.locator('#carryoverDetailDialog[open]').getByText('昨日完成百分比', { exact: true }).isVisible())) throw new Error('昨日续做详情未打开');
-  if (!(await page.locator('#carryoverDetailDialog[open]').getByText('92%', { exact: true }).isVisible())) throw new Error('昨日完成百分比没有读取昨日记录');
+  if (!(await page.locator('#carryoverDetailDialog[open]').getByText('65%', { exact: true }).first().isVisible())) throw new Error('昨日完成百分比没有读取昨日记录');
   await page.locator('#carryoverDetailDialog [data-close-dialog]').first().click();
 
   await page.locator('[data-daily-feedback="1"]').click();
@@ -168,7 +168,7 @@ async function login(page) {
   await page.locator('#menuButton').click();
   await page.locator('[data-view="intake"]').click();
   await page.waitForTimeout(350);
-  if (!(await page.locator('#intake .weekly-command-board').isVisible())) throw new Error('移动端每日执行中心不可用');
+  if (!(await page.locator('#intake .weekly-command-board').isVisible())) throw new Error('移动端每日任务执行中心不可用');
   await page.screenshot({ path: path.join(root, 'qa-intake-mobile.png'), fullPage: true });
   if (errors.length) throw new Error(`浏览器控制台错误：${errors.join(' | ')}`);
   await browser.close();

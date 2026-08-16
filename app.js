@@ -122,10 +122,10 @@ const defaultOrganization = [
 const defaultPlans = [
   { id: 201, level: 'master', title: '云河智造中心一期总进度', start: '2026-03-01', end: '2027-03-31', ownerRole: '项目经理', source: '总控计划' },
   { id: 202, level: 'month', title: '8月份主体结构与二次结构计划', start: '2026-08-01', end: '2026-08-31', ownerRole: '生产经理', source: '月度分解' },
-  { id: 203, level: 'week', title: '3#楼 8F 主体结构', start: currentWeekStart, end: currentWeekEnd, ownerRole: '土建工程师', source: '周计划', weight: 35 },
-  { id: 204, level: 'week', title: '2#楼 11F 主体结构', start: currentWeekStart, end: currentWeekEnd, ownerRole: '土建工程师', source: '周计划', weight: 25 },
-  { id: 205, level: 'week', title: '地下室桥架安装', start: currentWeekStart, end: currentWeekEnd, ownerRole: '机电工程师', source: '周计划', weight: 20 },
-  { id: 207, level: 'week', title: '设备检查与文明施工', start: currentWeekStart, end: currentWeekEnd, ownerRole: '生产经理', source: '周计划', weight: 20 },
+  { id: 203, level: 'week', title: '3#楼 8F 主体结构', start: currentWeekStart, end: currentWeekEnd, ownerRole: '土建工程师', owners: ['张凯 · 土建工程师'], team: '钢筋班组', source: '周计划', weight: 35 },
+  { id: 204, level: 'week', title: '2#楼 11F 主体结构', start: currentWeekStart, end: currentWeekEnd, ownerRole: '土建工程师', owners: ['张凯 · 土建工程师'], team: '木工一班', source: '周计划', weight: 25 },
+  { id: 205, level: 'week', title: '地下室桥架安装', start: currentWeekStart, end: currentWeekEnd, ownerRole: '机电工程师', owners: ['孙明 · 机电工程师'], team: '机电二组', source: '周计划', weight: 20 },
+  { id: 207, level: 'week', title: '设备检查与文明施工', start: currentWeekStart, end: currentWeekEnd, ownerRole: '生产经理', owners: ['王建国 · 生产经理'], team: '设备组', source: '周计划', weight: 20 },
   ...[-4, -3, -2, -1, 0, 1].flatMap((offset, dayIndex) => defaultTasks.map((task, taskIndex) => ({
     id: 3000 + dayIndex * 10 + task.id,
     level: 'day',
@@ -133,6 +133,9 @@ const defaultPlans = [
     start: shiftDateKey(dailyDateKey, offset),
     end: shiftDateKey(dailyDateKey, offset),
     ownerRole: taskIndex === 2 ? '机电工程师' : '土建工程师',
+    owners: taskIndex === 2 ? ['孙明 · 机电工程师'] : taskIndex === 3 ? ['张凯 · 土建工程师', '赵磊 · 质量员'] : taskIndex === 4 ? ['王建国 · 生产经理'] : taskIndex === 5 ? ['周强 · 安全员'] : ['张凯 · 土建工程师'],
+    team: ['钢筋班组', '木工一班', '机电二组', '混凝土班组', '设备组', '文明施工班组'][taskIndex],
+    dailyTarget: 100,
     source: '周计划分解',
     taskId: task.id,
     parentId: taskIndex === 0 || taskIndex === 3 ? 203 : taskIndex === 1 ? 204 : taskIndex === 2 ? 205 : 207,
@@ -195,7 +198,7 @@ const defaultDailyExecution = [
   { taskId: 5, dayPlanId: 3045, weekPlanId: 207, date: dailyDateKey, team: '设备组', plannedWorkers: 2, actualWorkers: 2, progress: 100, actualQuantity: '日检 1 台', materialPercent: 100, materialText: '备件齐全', documentDone: 1, documentTotal: 1, documentText: '日检记录已归档', note: '运行正常' },
   { taskId: 6, dayPlanId: 3046, weekPlanId: 207, date: dailyDateKey, team: '文明施工班组', plannedWorkers: 6, actualWorkers: 6, progress: 100, actualQuantity: '东侧道路复查完成', materialPercent: 100, materialText: '雾炮及覆盖材料齐全', documentDone: 1, documentTotal: 1, documentText: '复查记录已完成', note: '扬尘控制正常' },
   ...[-4, -3, -2, -1].flatMap((offset, dayIndex) => defaultTasks.map((task, taskIndex) => {
-    const progressMatrix = [[100,100,100,100,100,100],[100,100,100,100,100,100],[100,95,100,100,100,100],[92,86,94,88,100,100]];
+    const progressMatrix = [[30,20,35,0,100,100],[42,30,45,0,100,100],[52,40,58,10,100,100],[65,48,72,20,100,100]];
     const progress = progressMatrix[dayIndex][taskIndex];
     return { taskId: task.id, dayPlanId: 3000 + dayIndex * 10 + task.id, weekPlanId: taskIndex === 0 || taskIndex === 3 ? 203 : taskIndex === 1 ? 204 : taskIndex === 2 ? 205 : 207, date: shiftDateKey(dailyDateKey, offset), team: task.owner, plannedWorkers: [22,18,12,16,2,6][taskIndex], actualWorkers: [22,17,12,16,2,6][taskIndex], progress, actualQuantity: progress >= 100 ? '按日计划完成' : `完成 ${progress}%`, materialPercent: 100, materialText: '当日材料满足', documentDone: 2, documentTotal: 2, documentText: '当日资料已核验', note: progress >= 100 ? '当日任务已闭环' : '剩余工作已转入次日跟踪' };
   }))
@@ -606,6 +609,22 @@ function resolveOrganizationOwner(value = '') {
   return person ? `${person.name} · ${person.role}` : current;
 }
 
+function planOwners(plan) {
+  if (Array.isArray(plan.owners) && plan.owners.length) return plan.owners;
+  if (plan.ownerRole) return [resolveOrganizationOwner(plan.ownerRole)];
+  return [];
+}
+
+function planOwnerLabel(plan) {
+  return planOwners(plan).join('、') || '待明确';
+}
+
+function formatDayLabel(dateKey) {
+  const parts = String(dateKey || '').split('-').map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return dateKey || '';
+  return `${parts[1]}月${parts[2]}日`;
+}
+
 function attendanceSupplementWindow(record) {
   const registeredAt = new Date(record.registeredAt || `${record.date}T18:00:00+08:00`);
   const deadline = new Date(registeredAt.getTime() + 24 * 60 * 60 * 1000);
@@ -881,7 +900,7 @@ function updateMetrics() {
 }
 
 const subviews = {
-  intake: { title: '每日执行中心', desc: '把日计划落实到管理人员和班组，同时跟踪技术、材料、资料、质量安全及明日协调事项', action: '记录施工反馈', content: 'intake' },
+  intake: { title: '每日任务执行中心', desc: '把日计划落实到管理人员和班组，同时跟踪技术、材料、资料、质量安全及需协调事项', action: '记录施工反馈', content: 'intake' },
   schedule: { title: '进度计划', desc: '总计划逐级分解到月、周和每日执行事项', action: '新建计划', content: 'schedule' },
   technical: { title: '技术文件', desc: '图纸、设计变更、联系函和指令单统一共享，关联任务后完成线上交底', action: '上传技术文件', content: 'technical' },
   cost: { title: '成控文件', desc: '合同、经济核定单和现场工程量确认单统一归档，形成过程成本依据', action: '新增成控文件', content: 'cost' },
@@ -917,7 +936,19 @@ function renderPlanRow(plan, groupedDay = false) {
   const parent = plans.find(item => Number(item.id) === Number(plan.parentId));
   const record = getPlanExecutionRecord(plan);
   const progress = Number(record?.progress || 0);
-  return `<article class="plan-row${groupedDay ? ' day-plan-row' : ''}"><div><strong>${escapeHtml(plan.title)}</strong><small>来源：${escapeHtml(plan.source || '手工新建')}${parent ? ` · 所属周计划：${escapeHtml(parent.title)}` : ''}</small></div>${groupedDay ? `<span>${escapeHtml(plan.ownerRole || '待明确')}</span><span class="day-plan-progress ${progress >= 100 ? 'complete' : ''}">完成 ${progress}%</span>` : `<span>${escapeHtml(plan.start)}</span><span>${escapeHtml(plan.end)}</span><span>${escapeHtml(plan.ownerRole || '待明确')}</span>`}<button class="edit-action" data-edit-plan="${plan.id}">编辑计划</button></article>`;
+  const isDay = groupedDay;
+  const isWeek = plan.level === 'week';
+  const ownerLabel = escapeHtml(planOwnerLabel(plan));
+  const teamLabel = escapeHtml(plan.team || '待明确');
+  let metaColumns;
+  if (isDay) {
+    metaColumns = `<span>${ownerLabel}</span><span>${teamLabel}</span><span class="day-plan-progress ${progress >= 100 ? 'complete' : ''}">${plan.dailyTarget ? `目标 ${plan.dailyTarget}% · ` : ''}完成 ${progress}%</span>`;
+  } else if (isWeek) {
+    metaColumns = `<span>${escapeHtml(plan.start)}</span><span>${escapeHtml(plan.end)}</span><span>${ownerLabel}</span><span>${teamLabel}</span>`;
+  } else {
+    metaColumns = `<span>${escapeHtml(plan.start)}</span><span>${escapeHtml(plan.end)}</span><span>${escapeHtml(plan.ownerRole || '待明确')}</span>`;
+  }
+  return `<article class="plan-row${isDay ? ' day-plan-row' : ''}${isWeek ? ' week-plan-row' : ''}"><div><strong>${escapeHtml(plan.title)}</strong><small>来源：${escapeHtml(plan.source || '手工新建')}${parent ? ` · 所属周计划：${escapeHtml(parent.title)}` : ''}</small></div>${metaColumns}<button class="edit-action" data-edit-plan="${plan.id}">编辑计划</button></article>`;
 }
 
 function formatDailyPlanGroupLabel(dateKey) {
@@ -967,6 +998,17 @@ function updatePlanParentField(selectedParentId = '') {
   if (selectedParentId && weekPlans.some(plan => Number(plan.id) === Number(selectedParentId))) form.elements.parentId.value = String(selectedParentId);
 }
 
+function updatePlanFields() {
+  const form = $('#planForm');
+  const level = form.elements.level.value;
+  const isDay = level === 'day';
+  const isDayOrWeek = isDay || level === 'week';
+  $('#planOwnerRoleField').hidden = isDayOrWeek;
+  $('#planOwnersField').hidden = !isDayOrWeek;
+  $('#planTeamField').hidden = !isDayOrWeek;
+  $('#planDailyTargetField').hidden = !isDay;
+}
+
 function openPlanDialog(plan = null) {
   const form = $('#planForm');
   form.reset();
@@ -979,7 +1021,11 @@ function openPlanDialog(plan = null) {
   form.elements.start.value = plan?.start || new Date().toISOString().slice(0, 10);
   form.elements.end.value = plan?.end || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
   form.elements.ownerRole.value = plan?.ownerRole || '生产经理';
+  form.elements.owners.value = Array.isArray(plan?.owners) ? plan.owners.join('、') : (plan?.owners || '');
+  form.elements.team.value = plan?.team || '';
+  form.elements.dailyTarget.value = plan?.dailyTarget ?? 100;
   updatePlanParentField(plan?.parentId || '');
+  updatePlanFields();
   $('#planDialog .dialog-heading h2').textContent = plan ? '编辑并更新计划' : '新建或导入计划';
   $('#planDialog').showModal();
 }
@@ -1853,7 +1899,7 @@ function getDailyExecutionRecord(taskId, date = activeExecutionDate, dayPlan = n
 function getDailyTaskContexts(date = activeExecutionDate) {
   return plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date).sort((a,b) => Number(a.id) - Number(b.id)).map(dayPlan => {
     const storedTask = tasks.find(task => Number(task.id) === Number(dayPlan.taskId) || Number(task.dayPlanId) === Number(dayPlan.id));
-    const task = storedTask || { id: dayPlan.taskId || dayPlan.id, title: dayPlan.title, zone: '计划指定区域', owner: resolveOrganizationOwner(dayPlan.ownerRole), time: '17:00', status: 'todo', priority: 'normal', virtual: true };
+    const task = storedTask || { id: dayPlan.taskId || dayPlan.id, title: dayPlan.title, zone: '计划指定区域', owner: planOwners(dayPlan)[0] || resolveOrganizationOwner(dayPlan.ownerRole), time: '17:00', status: 'todo', priority: 'normal', virtual: true };
     return { task, dayPlan, record: getDailyExecutionRecord(task.id, date, dayPlan) };
   });
 }
@@ -1943,8 +1989,10 @@ function renderIntakeBody() {
   const openQuality = qualityChecks.filter(item => item.type === 'quality' && item.status !== 'closed').length;
   const openSafety = safetyInspections.reduce((sum,item) => sum + (item.issues || []).filter(issue => issue.status !== 'closed').length, 0);
   const currentLabel = activeExecutionDate === dailyDateKey ? '今日' : activeExecutionDate;
+  const dayLabel = formatDayLabel(activeExecutionDate);
+  const planHeading = activeExecutionDate === dailyDateKey ? `今日计划 · ${dayLabel}` : `${dayLabel}计划`;
   return `<section class="daily-query-bar"><div><span>执行日期</span><button type="button" data-daily-date-step="-1" aria-label="前一天">←</button><input type="date" id="dailyExecutionDate" value="${activeExecutionDate}"><button type="button" data-daily-date-step="1" aria-label="后一天">→</button><button type="button" data-daily-today ${activeExecutionDate === dailyDateKey ? 'disabled' : ''}>回到今天</button></div><p>任务来源：日进度计划 · 周完成率来自每日执行反馈 · 人员投入只读取实名制打卡记录</p></section>
-    <section class="today-plan-register"><div class="daily-section-heading"><div><strong>${currentLabel}计划</strong><small>计划名称和责任人来自当日进度计划，点击下方任务可反馈执行情况</small></div><span>${taskContexts.length} 项计划</span></div><div>${taskContexts.map((item,index) => `<article><i>${String(index + 1).padStart(2,'0')}</i><div><strong>${escapeHtml(item.dayPlan.title)}</strong><small>${escapeHtml(item.task.zone)} · 所属：${escapeHtml(plans.find(plan => Number(plan.id) === Number(item.dayPlan.parentId))?.title || '待关联周计划')}</small></div><span>责任人</span><b>${escapeHtml(item.task.owner)}</b></article>`).join('') || '<div class="resource-empty">该日期尚未编制日进度计划。</div>'}</div></section>
+    <section class="today-plan-register"><div class="daily-section-heading"><div><strong>${planHeading}</strong><small>计划名称和责任人来自当日进度计划，点击下方任务可反馈执行情况</small></div><span>${taskContexts.length} 项计划</span></div><div>${taskContexts.map((item,index) => `<article><i>${String(index + 1).padStart(2,'0')}</i><div><strong>${escapeHtml(item.dayPlan.title)}</strong><small>${escapeHtml(item.task.zone)} · 所属：${escapeHtml(plans.find(plan => Number(plan.id) === Number(item.dayPlan.parentId))?.title || '待关联周计划')}</small></div><span>责任人</span><b>${escapeHtml(item.task.owner)}</b></article>`).join('') || '<div class="resource-empty">该日期尚未编制日进度计划。</div>'}</div></section>
     <section class="daily-command-board weekly-command-board">
       <div class="daily-command-copy"><span>WEEKLY CONTROL · ${weekStart}—${shiftDateKey(weekStart,6)}</span><h2>本周计划完成情况</h2><p>逐日对照完成比例和实名制考勤投入；完成率来自日计划反馈，人员数据只采用劳资员上传的打卡记录。</p></div>
       <div class="weekly-progress-compare ${weekly.state}"><div><span>所属周计划</span><strong>${weekly.weekPlans.map(item => item.title).join(' · ') || '尚未关联周计划'}</strong></div><div><span>周计划应完成</span><b>${weekly.planned}%</b><i><em style="width:${weekly.planned}%"></em></i></div><div><span>周累计实际完成</span><b>${weekly.actual}%</b><i><em style="width:${weekly.actual}%"></em></i></div><mark>${weekly.label} ${weekly.deviation > 0 ? '+' : ''}${weekly.deviation}%</mark></div>
@@ -1953,7 +2001,7 @@ function renderIntakeBody() {
     </section>
     <div class="daily-layout">
       <div class="daily-main-stack">
-        <section class="carryover-board"><div class="daily-section-heading"><div><strong>昨日未完成计划今日继续完成</strong><small>与今日新计划分开管理；点击任务查看昨日完成量、剩余工作和今日续做情况</small></div><span>${carryovers.length} 项续做</span></div><div>${carryovers.map(item => `<button type="button" class="carryover-item" data-carryover-task="${item.task.id}" data-carryover-date="${yesterday}"><span class="carryover-sequence">续</span><div><strong>${escapeHtml(item.dayPlan.title)}</strong><small>${escapeHtml(item.task.owner)} · ${escapeHtml(item.record.team)}</small><p>${escapeHtml(item.record.note || '未填写未完成原因')}</p></div><span class="carryover-percent"><small>昨日完成</small><b>${item.record.progress}%</b></span><i><em style="width:${Math.min(100,Number(item.record.progress || 0))}%"></em></i><em>查看续做详情 →</em></button>`).join('') || '<div class="resource-empty">昨日计划已全部完成，没有顺延事项。</div>'}</div></section>
+        <section class="carryover-board"><div class="daily-section-heading"><div><strong>昨日未完成计划</strong><small>与今日新计划分开管理；点击任务查看昨日完成量、剩余工作和今日续做情况</small></div><span>${carryovers.length} 项续做</span></div><div>${carryovers.map(item => `<button type="button" class="carryover-item" data-carryover-task="${item.task.id}" data-carryover-date="${yesterday}"><span class="carryover-sequence">续</span><div><strong>${escapeHtml(item.dayPlan.title)}</strong><small>${escapeHtml(item.task.owner)} · ${escapeHtml(item.record.team)}</small><p>${escapeHtml(item.record.note || '未填写未完成原因')}</p></div><span class="carryover-percent"><small>昨日完成</small><b>${item.record.progress}%</b></span><i><em style="width:${Math.min(100,Number(item.record.progress || 0))}%"></em></i><em>查看续做详情 →</em></button>`).join('') || '<div class="resource-empty">昨日计划已全部完成，没有顺延事项。</div>'}</div></section>
         <section class="daily-task-board"><div class="daily-section-heading"><div><strong>${currentLabel}计划跟踪</strong><small>同步核对人员、技术变更、材料条件和资料门禁，风险项优先处理</small></div><span>${completed} / ${taskContexts.length} 完成 · ${completionRate}%</span></div><div class="daily-task-columns"><span>日计划任务与进度</span><span>人员</span><span>技术</span><span>材料</span><span>资料</span><span>操作</span></div>${taskContexts.map(renderDailyTaskRow).join('') || '<div class="resource-empty">该日期尚未编制日进度计划，请先在“进度计划”中新增日计划。</div>'}</section>
       </div>
       <aside class="tomorrow-coordination"><div class="daily-section-heading"><div><strong>需协调事项跟踪</strong><small>显示提出人、责任人及当前跟进状态，完成后保留闭环记录</small></div><button type="button" data-new-coordination>＋ 提问题</button></div><div class="coordination-list">${coordinationItems.map(item => { const task = tasks.find(task => Number(task.id) === Number(item.taskId)); const status = item.status || 'pending'; const statusLabel = status === 'resolved' ? '已完成' : status === 'following' ? '正在跟进' : '待跟进'; return `<article class="${status}"><div><em>${escapeHtml(item.category)}</em><span class="coordination-status ${status}">${statusLabel}</span></div><strong>${escapeHtml(item.content)}</strong><small>关联：${escapeHtml(task?.title || '施工任务')}</small><div class="coordination-people"><span>提出：${escapeHtml(item.requester)}</span><b>责任：${escapeHtml(item.owner)}</b></div><p>最晚 ${formatIntakeTime(item.due)}${item.feedback ? ` · ${escapeHtml(item.feedback)}` : ''}</p>${status === 'resolved' ? '<button type="button" disabled>✓ 已完成</button>' : status === 'following' ? `<button type="button" data-resolve-coordination="${item.id}">标记完成</button>` : `<button type="button" data-follow-coordination="${item.id}">开始跟进</button>`}</article>`; }).join('') || '<div class="resource-empty">当前没有需协调事项</div>'}</div></aside>
@@ -2001,7 +2049,7 @@ function loadDailyFeedbackTask(taskId) {
   const record = getDailyExecutionRecord(task.id, dailyDateKey, dayPlan);
   const form = $('#dailyFeedbackForm');
   form.elements.taskId.value = task.id; form.elements.taskSelect.value = String(task.id);
-  form.elements.team.value = record.team || ''; form.elements.status.value = task.status === 'done' ? 'done' : Number(record.progress) ? 'doing' : 'todo';
+  form.elements.owner.value = task.owner || ''; form.elements.team.value = record.team || ''; form.elements.status.value = task.status === 'done' ? 'done' : Number(record.progress) ? 'doing' : 'todo';
   form.elements.plannedWorkers.value = record.plannedWorkers || 0; form.elements.actualWorkers.value = record.actualWorkers || 0; form.elements.progress.value = record.progress || 0; form.elements.actualQuantity.value = record.actualQuantity || '';
   form.elements.materialPercent.value = record.materialPercent || 0; form.elements.materialText.value = record.materialText || ''; form.elements.documentDone.value = record.documentDone || 0; form.elements.documentTotal.value = record.documentTotal || 1; form.elements.documentText.value = record.documentText || ''; form.elements.note.value = record.note || '';
   updateDailyDocumentCondition();
@@ -2469,7 +2517,7 @@ function initializeApp() {
 
   $$('[data-task-intake]').forEach(button => button.addEventListener('click', () => setTaskIntakeMode(button.dataset.taskIntake)));
   $$('[data-plan-mode]').forEach(button => button.addEventListener('click', () => setPlanMode(button.dataset.planMode)));
-  $('#planForm select[name="level"]').addEventListener('change', () => updatePlanParentField());
+  $('#planForm select[name="level"]').addEventListener('change', () => { updatePlanParentField(); updatePlanFields(); });
   $('#planForm input[name="start"]').addEventListener('change', () => updatePlanParentField($('#planForm').elements.parentId.value));
   $('#taskImportInput').addEventListener('change', event => recognizeTaskFiles([...event.target.files]));
   $('#planImportInput').addEventListener('change', event => { if (event.target.files[0]) recognizePlanFile(event.target.files[0]); });
@@ -2553,7 +2601,7 @@ function initializeApp() {
       const record = { ...existing, taskId, dayPlanId: dayPlan?.id || existing.dayPlanId, weekPlanId: dayPlan?.parentId || existing.weekPlanId, date: dailyDateKey, team: data.get('team'), plannedWorkers: Number(data.get('plannedWorkers')), actualWorkers: Number(data.get('actualWorkers')), progress: Number(data.get('progress')), actualQuantity: data.get('actualQuantity'), materialPercent: Number(data.get('materialPercent')), materialText: data.get('materialText'), documentDone: Number(data.get('documentDone')), documentTotal: Number(data.get('documentTotal')), documentText: data.get('documentText'), note: data.get('note'), feedbackPhotos: [...(existing.feedbackPhotos || []), ...photos], feedbackAt: new Date().toISOString(), feedbackBy: currentOperatorLabel() };
       dailyExecution = dailyExecution.map(item => ((record.dayPlanId && Number(item.dayPlanId) === Number(record.dayPlanId)) || (Number(item.taskId) === taskId && item.date === dailyDateKey)) ? record : item);
       const status = data.get('status') === 'done' || record.progress >= 100 ? 'done' : data.get('status') === 'doing' || record.progress > 0 ? 'doing' : 'todo';
-      tasks = tasks.map(item => Number(item.id) === taskId ? { ...item, status } : item);
+      tasks = tasks.map(item => Number(item.id) === taskId ? { ...item, status, owner: data.get('owner') || item.owner } : item);
       siteRecords.unshift({ id: Date.now(), type: '施工反馈', content: `${tasks.find(item => Number(item.id) === taskId)?.title || '施工任务'}：${record.actualQuantity}；${record.note}`, createdAt: new Date().toISOString(), photos, sourceTaskId: taskId });
       persistDailyExecution(); persistTasks(); persistSiteRecords();
       form.reset(); $('#dailyFeedbackDialog').close();
@@ -2841,15 +2889,18 @@ function initializeApp() {
     const start = data.get('start');
     const explicitParentId = Number(data.get('parentId')) || null;
     const inferredParent = level === 'day' ? plans.find(plan => plan.level === 'week' && plan.start <= start && plan.end >= start && (!explicitParentId || Number(plan.id) === explicitParentId)) : null;
-    const base = { level, ownerRole: data.get('ownerRole'), start, end: level === 'day' ? start : data.get('end'), parentId: level === 'day' ? (explicitParentId || inferredParent?.id || null) : null };
+    const owners = level === 'day' || level === 'week' ? String(data.get('owners') || '').split(/[、,，]/).map(item => item.trim()).filter(Boolean) : [];
+    const team = level === 'day' || level === 'week' ? String(data.get('team') || '').trim() : '';
+    const dailyTarget = level === 'day' ? Math.max(0, Math.min(100, Number(data.get('dailyTarget') || 100))) : null;
+    const base = { level, ownerRole: data.get('ownerRole'), owners, team, dailyTarget, start, end: level === 'day' ? start : data.get('end'), parentId: level === 'day' ? (explicitParentId || inferredParent?.id || null) : null };
     const attachDayTask = plan => {
       if (plan.level !== 'day') return plan;
       let task = tasks.find(item => Number(item.id) === Number(plan.taskId)) || tasks.find(item => Number(item.dayPlanId) === Number(plan.id));
       if (!task) {
-        task = { id: Date.now() + Math.floor(Math.random() * 1000), dayPlanId: plan.id, title: plan.title, zone: '计划指定区域', owner: resolveOrganizationOwner(plan.ownerRole), creator: currentOperatorLabel(), taskType: '施工任务', time: '17:00', status: 'todo', priority: 'normal', criteria: `来源：日进度计划 #${plan.id}` };
+        task = { id: Date.now() + Math.floor(Math.random() * 1000), dayPlanId: plan.id, title: plan.title, zone: '计划指定区域', owner: planOwners(plan)[0] || resolveOrganizationOwner(plan.ownerRole), creator: currentOperatorLabel(), taskType: '施工任务', time: '17:00', status: 'todo', priority: 'normal', criteria: `来源：日进度计划 #${plan.id}` };
         tasks.unshift(task);
       } else {
-        Object.assign(task, { dayPlanId: plan.id, title: plan.title, owner: task.owner || resolveOrganizationOwner(plan.ownerRole) });
+        Object.assign(task, { dayPlanId: plan.id, title: plan.title, owner: task.owner || planOwners(plan)[0] || resolveOrganizationOwner(plan.ownerRole) });
       }
       plan.taskId = task.id;
       return plan;

@@ -48,7 +48,7 @@
       </div>
 
       <nav class="nav-list">
-        <button class="nav-item active" data-view="intake"><span class="nav-icon">☷</span><span>每日执行</span><b class="warn" id="dailyBadge">0</b></button>
+        <button class="nav-item active" data-view="intake"><span class="nav-icon">☷</span><span>每日任务执行</span><b class="warn" id="dailyBadge">0</b></button>
         <button class="nav-item" data-view="schedule"><span class="nav-icon">▦</span><span>进度计划</span></button>
         <button class="nav-item" data-view="technical"><span class="nav-icon">▧</span><span>技术文件</span><b id="technicalBadge">4</b></button>
         <button class="nav-item" data-view="cost"><span class="nav-icon">¥</span><span>成控文件</span><b id="costBadge">3</b></button>
@@ -76,7 +76,7 @@
     <div class="workspace">
       <header class="topbar">
         <button class="icon-button menu-button" id="menuButton" aria-label="打开菜单" aria-expanded="false">☰</button>
-        <button class="global-back-button" id="globalBackButton" aria-label="返回每日执行首页" title="返回每日执行首页"><span>←</span><b>返回首页</b></button>
+        <button class="global-back-button" id="globalBackButton" aria-label="返回每日任务执行首页" title="返回每日任务执行首页"><span>←</span><b>返回首页</b></button>
         <div class="project-switcher">
           <span>当前项目</span>
           <button id="projectButton">云河智造中心一期 <span>⌄</span></button>
@@ -217,6 +217,7 @@
       <div class="dialog-heading"><div><span>日计划执行反馈</span><h2>更新任务、人员和资源状态</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
       <input type="hidden" name="taskId">
       <label>今日任务<select name="taskSelect" id="dailyFeedbackTaskSelect"></select></label>
+      <label>责任人<input name="owner" list="organizationOwners" required placeholder="按组织架构匹配，可手工修改"></label>
       <div class="form-grid"><label>执行班组<input name="team" required placeholder="例如：钢筋班组"></label><label>任务状态<select name="status"><option value="todo">待开始</option><option value="doing">进行中</option><option value="done">已完成</option></select></label></div>
       <div class="form-grid"><label>计划投入人数<input name="plannedWorkers" type="number" min="0" required></label><label>实际到岗人数<input name="actualWorkers" type="number" min="0" required></label></div>
       <div class="form-grid"><label>完成比例（%）<input name="progress" type="number" min="0" max="100" required></label><label>实际完成工程量<input name="actualQuantity" required placeholder="例如：梁板钢筋完成18.6t"></label></div>
@@ -389,7 +390,7 @@
         <div class="recognition-state" id="planRecognitionState">尚未选择文件</div>
       </section>
       <div class="recognition-candidates" id="planRecognitionCandidates"></div>
-      <div class="form-grid"><label>计划层级<select name="level"><option value="master">总计划</option><option value="month">月计划</option><option value="week" selected>周计划</option><option value="day">日计划</option></select></label><label>责任岗位<select name="ownerRole"><option>生产经理</option><option>项目经理</option><option>土建工程师</option><option>机电工程师</option></select></label></div>
+      <div class="form-grid"><label>计划层级<select name="level"><option value="master">总计划</option><option value="month">月计划</option><option value="week" selected>周计划</option><option value="day">日计划</option></select></label><label id="planOwnerRoleField">责任岗位<select name="ownerRole"><option>生产经理</option><option>项目经理</option><option>土建工程师</option><option>机电工程师</option></select></label><label id="planOwnersField" hidden>责任人<input name="owners" list="organizationOwners" placeholder="可多选，用、分隔"></label><label id="planTeamField" hidden>责任班组<input name="team" placeholder="例如：钢筋班组"></label><label id="planDailyTargetField" hidden>当日完成百分比<input name="dailyTarget" type="number" min="0" max="100" placeholder="例如：100"></label></div>
       <label id="parentWeekPlanField" hidden>所属周计划<select name="parentId"><option value="">系统按日期自动匹配</option></select><small class="match-hint">日计划必须归入周计划，才能自动判断周进度是否滞后。</small></label>
       <label>工作名称<input name="title" required placeholder="例如：3#楼 9F 主体结构"></label>
       <div class="form-grid"><label>开始日期<input type="date" name="start" required></label><label>完成日期<input type="date" name="end" required></label></div>
