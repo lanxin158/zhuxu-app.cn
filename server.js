@@ -624,7 +624,7 @@ function serveStatic(req, res, url) {
   const filePath = path.join(ROOT, ...relative.split('/'));
   fs.readFile(filePath, (error, data) => {
     if (error) return sendJson(res, 404, { error: '文件不存在' });
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream', 'Content-Length': data.length, 'Cache-Control': relative === 'index.html' ? 'no-store' : 'public, max-age=60' });
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream', 'Content-Length': data.length, 'Cache-Control': 'no-store' });
     res.end(data);
   });
 }
