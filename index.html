@@ -305,11 +305,12 @@
       <div class="dialog-heading"><div><span>项目技术文件共享</span><h2>上传图纸、变更、联系函或指令单</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
       <div class="form-grid"><label>文件类别<select name="type"><option value="drawing">施工图纸</option><option value="change">设计变更</option><option value="contact">联系函</option><option value="instruction">指令单</option></select></label><label>文件编号<input name="code" required placeholder="例如：SJBG-2026-018"></label></div>
       <label>文件名称<input name="title" required maxlength="100" placeholder="填写图纸、变更或指令主题"></label>
-      <div class="form-grid"><label>所属单体 / 分区<input name="building" required placeholder="例如：3#楼、地下室或室外工程"></label><label>发布日期<input name="issuedAt" type="date" required></label></div>
+      <div class="form-grid"><label>所属单体 / 分区<input name="building" required placeholder="例如：3#楼、地下室或室外工程"></label><label id="professionField" hidden>专业分类<select name="profession"><option value="">自动识别 / 其他</option><option>结构</option><option>建筑</option><option>暖通</option><option>采暖</option><option>给排水</option><option>电气</option><option>消防</option></select></label><label>发布日期<input name="issuedAt" type="date" required></label></div>
       <label>发布人<input name="issuedBy" list="organizationOwners" required></label>
       <label>适用部位 / 范围<input name="scope" required placeholder="例如：3#楼 8F 梁板"></label>
       <label>主要内容<textarea name="content" rows="5" required placeholder="填写必须执行的技术要求、变更内容或联系事项"></textarea></label>
       <label>上传原文件<input name="files" type="file" accept=".pdf,.dwg,.dxf,.doc,.docx,.xls,.xlsx,image/*" multiple><small>支持 PDF、CAD、Word、Excel 和图片，上传后项目成员均可查看。</small></label>
+      <div class="drawing-folder-upload"><button type="button" class="secondary-button" id="drawingFolderButton">＋ 直接上传图纸文件夹</button><small id="drawingFolderState">选择文件夹后，按“单体 / 专业 / 图纸”目录结构自动归档</small><input class="visually-hidden" id="drawingFolderInput" type="file" webkitdirectory multiple></div>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存技术文件</button></div>
     </form>
   </dialog>

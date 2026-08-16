@@ -182,6 +182,52 @@ async function apiPutRaw(page, path, body) {
   await pm.locator('#technicalDocumentDialog').waitFor({ state: 'hidden' });
   await pm.waitForTimeout(300);
 
+  // —— 施工图：单张上传按专业归档 ——
+  await pm.locator('#technical .subview-action').click();
+  const drawingForm = pm.locator('#technicalDocumentForm');
+  await drawingForm.locator('select[name="type"]').selectOption('drawing');
+  await drawingForm.locator('input[name="code"]').fill('SJT-2026-001');
+  await drawingForm.locator('input[name="title"]').fill('3#楼 8F 梁配筋图');
+  await drawingForm.locator('input[name="building"]').fill('3#楼');
+  await drawingForm.locator('select[name="profession"]').selectOption('结构');
+  await drawingForm.locator('input[name="scope"]').fill('3#楼 8F');
+  await drawingForm.locator('textarea[name="content"]').fill('梁配筋详图（多行\n说明文字）');
+  await drawingForm.getByRole('button', { name: '保存技术文件' }).click();
+  await pm.locator('#technicalDocumentDialog').waitFor({ state: 'hidden' });
+  await pm.waitForTimeout(200);
+  const drawingRecord = await pm.evaluate(() => technicalDocuments.find(item => item.code === 'SJT-2026-001'));
+  if (!drawingRecord || drawingRecord.profession !== '结构') throw new Error(`Drawing profession was not saved: ${JSON.stringify(drawingRecord)}`);
+
+  // —— 施工图：直接上传图纸文件夹（按 单体/专业/图纸 自动归档） ——
+  const folderImport = await pm.evaluate(async () => {
+    const files = [];
+    const rels = ['3#楼/结构/首层梁配筋图.dwg', '3#楼/建筑/首层平面图.dwg', '地下室/给排水/集水坑排水图.dwg', '室外工程/景观电气.dwg'];
+    for (const rel of rels) {
+      const file = new File(['dwg-content'], rel.split('/').pop());
+      Object.defineProperty(file, 'webkitRelativePath', { value: rel });
+      files.push(file);
+    }
+    const count = await importDrawingFolder(files);
+    const docs = technicalDocuments.filter(item => item.fromFolder).map(item => `${item.building}/${item.profession}/${item.title}`);
+    return { count, docs };
+  });
+  if (folderImport.count !== 4) throw new Error(`Folder import should add 4 drawings, got ${folderImport.count}`);
+  for (const expect of ['3#楼/结构/首层梁配筋图', '3#楼/建筑/首层平面图', '地下室/给排水/集水坑排水图', '室外工程/电气/景观电气']) {
+    if (!folderImport.docs.includes(expect)) throw new Error(`Folder import missing ${expect}: ${JSON.stringify(folderImport.docs)}`);
+  }
+
+  // —— 施工图：单体内按专业分组与过滤 ——
+  await pm.locator('[data-technical-filter="drawing"]').click();
+  await pm.locator('[data-technical-building="3#楼"]').click();
+  if (await pm.locator('.technical-profession-tabs button').count() < 3) throw new Error('Profession tabs missing inside building folder');
+  await pm.locator('[data-technical-profession="结构"]').click();
+  if (!(await pm.locator('#technical').getByText('3#楼 8F 梁配筋图').first().isVisible())) throw new Error('Structural drawing not shown in structural filter');
+  if (await pm.locator('#technical').getByText('首层平面图').count()) throw new Error('Architectural drawing leaked into structural filter');
+  await pm.locator('[data-technical-profession="建筑"]').click();
+  if (!(await pm.locator('#technical').getByText('首层平面图').first().isVisible())) throw new Error('Architectural drawing not shown in architectural filter');
+  // 回到技术文件列表
+  await pm.locator('[data-technical-building="all"]').click();
+
   await pm.locator('[data-view="cost"]').click();
   await pm.locator('#cost .subview-action').click();
   const costForm = pm.locator('#costDocumentForm');
