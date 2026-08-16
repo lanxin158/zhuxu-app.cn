@@ -8,6 +8,15 @@ const stages = [
   { name: '竣工交付', meta: '待开始', status: 'todo', detail: '计划 2027 年 3 月进入联合验收', owner: '项目部' }
 ];
 
+const dailyDateKey = new Date().toISOString().slice(0, 10);
+function shiftDateKey(dateKey, days) {
+  const date = new Date(`${dateKey}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+const currentWeekStart = shiftDateKey(dailyDateKey, -((new Date(`${dailyDateKey}T12:00:00`).getDay() + 6) % 7));
+const currentWeekEnd = shiftDateKey(currentWeekStart, 6);
+
 const defaultTasks = [
   { id: 1, title: '3#楼 8F 梁板钢筋绑扎及验收', zone: '3#楼', owner: '王建国', time: '11:30', status: 'todo', priority: 'risk' },
   { id: 2, title: '2#楼 11F 墙柱模板加固', zone: '2#楼', owner: '木工一班', time: '14:00', status: 'doing', priority: 'normal' },
@@ -106,16 +115,29 @@ const defaultOrganization = [
   { id: 'purchaser', name: '林浩', role: '采购员', account: 'lin.purchase', phone: '138 0000 1114', scope: '接收已审批材料计划、询价下单与供应跟踪' },
   { id: 'document', name: '李娜', role: '资料员', account: 'li.doc', scope: '报验、送检与资料归档' },
   { id: 'labor', name: '赵敏', role: '劳资员', account: 'zhao.labor', phone: '138 0000 1113', scope: '实名制考勤、人员进退场与工资资料' },
-  { id: 'equipment', name: '何军', role: '设备管理员', account: 'he.equipment', scope: '设备进退场与维保' }
+  { id: 'equipment', name: '何军', role: '设备管理员', account: 'he.equipment', scope: '设备进退场与维保' },
+  { id: 'commercial', name: '罗婷', role: '商务经理', account: 'luo.cost', phone: '138 0000 1116', scope: '合同、经济核定、工程量确认与结算管理' }
 ];
 
 const defaultPlans = [
   { id: 201, level: 'master', title: '云河智造中心一期总进度', start: '2026-03-01', end: '2027-03-31', ownerRole: '项目经理', source: '总控计划' },
   { id: 202, level: 'month', title: '8月份主体结构与二次结构计划', start: '2026-08-01', end: '2026-08-31', ownerRole: '生产经理', source: '月度分解' },
-  { id: 203, level: 'week', title: '3#楼 8F 主体结构', start: '2026-08-07', end: '2026-08-10', ownerRole: '土建工程师', source: '周计划' },
-  { id: 204, level: 'week', title: '2#楼 11F 主体结构', start: '2026-08-08', end: '2026-08-12', ownerRole: '土建工程师', source: '周计划' },
-  { id: 205, level: 'week', title: '地下室桥架安装', start: '2026-08-09', end: '2026-08-13', ownerRole: '机电工程师', source: '周计划' },
-  { id: 206, level: 'day', title: '3#楼梁板钢筋绑扎及验收', start: '2026-08-09', end: '2026-08-09', ownerRole: '土建工程师', source: '日计划' }
+  { id: 203, level: 'week', title: '3#楼 8F 主体结构', start: currentWeekStart, end: currentWeekEnd, ownerRole: '土建工程师', source: '周计划', weight: 35 },
+  { id: 204, level: 'week', title: '2#楼 11F 主体结构', start: currentWeekStart, end: currentWeekEnd, ownerRole: '土建工程师', source: '周计划', weight: 25 },
+  { id: 205, level: 'week', title: '地下室桥架安装', start: currentWeekStart, end: currentWeekEnd, ownerRole: '机电工程师', source: '周计划', weight: 20 },
+  { id: 207, level: 'week', title: '设备检查与文明施工', start: currentWeekStart, end: currentWeekEnd, ownerRole: '生产经理', source: '周计划', weight: 20 },
+  ...[-4, -3, -2, -1, 0, 1].flatMap((offset, dayIndex) => defaultTasks.map((task, taskIndex) => ({
+    id: 3000 + dayIndex * 10 + task.id,
+    level: 'day',
+    title: task.title,
+    start: shiftDateKey(dailyDateKey, offset),
+    end: shiftDateKey(dailyDateKey, offset),
+    ownerRole: taskIndex === 2 ? '机电工程师' : '土建工程师',
+    source: '周计划分解',
+    taskId: task.id,
+    parentId: taskIndex === 0 || taskIndex === 3 ? 203 : taskIndex === 1 ? 204 : taskIndex === 2 ? 205 : 207,
+    weight: 1
+  })))
 ];
 
 const defaultResourceEntries = [
@@ -144,6 +166,45 @@ const defaultQualityChecks = [
   { id: 506, type: 'quality', title: '防水附加层宽度不足', location: '地下室顶板', owner: '防水班组', date: '2026-08-07', due: '2026-08-09', status: 'pending', critical: false, note: '', recordAttachments: [], beforeAttachments: [], afterAttachments: [] },
   { id: 507, type: 'quality', title: '混凝土施工缝凿毛清理', location: '3#楼 7F', owner: '混凝土班组', date: '2026-08-07', due: '2026-08-09', status: 'pending', critical: false, note: '', recordAttachments: [], beforeAttachments: [], afterAttachments: [] },
   ...Array.from({ length: 12 }, (_, index) => ({ id: 600 + index, type: 'safety', title: ['临边防护巡检', '临时用电巡检', '消防器材巡检', '起重设备巡检'][index % 4], location: ['3#楼', '2#楼', '地下室', '加工区'][index % 4], owner: '安全员', date: index < 4 ? '2026-08-10' : '2026-08-09', due: '2026-08-10', status: index === 0 ? 'pending' : 'closed', critical: false, note: index === 0 ? '发现一处临边踢脚板松动，已生成整改内容' : '巡检完成，未发现影响施工的问题', recordAttachments: [], beforeAttachments: [], afterAttachments: [] }))
+];
+
+const defaultIntakeRecords = [
+  { id: 1001, title: '3#楼8F钢筋施工计划表', source: 'file', target: 'plan', zone: '3#楼 8F 梁板', collector: '王建国 · 生产经理', collectedAt: '2026-08-15T08:20:00+08:00', status: 'review', rawText: '梁板钢筋绑扎\n钢筋隐蔽验收\n混凝土浇筑准备', candidates: [{ title: '梁板钢筋绑扎', selected: true }, { title: '钢筋隐蔽验收', selected: true }, { title: '混凝土浇筑准备', selected: true }], attachments: [{ name: '3#楼8F钢筋施工计划.xlsx', type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', stored: false }], recognitionMode: '浏览器本地解析' },
+  { id: 1002, title: '东侧临边防护整改照片', source: 'photo', target: 'quality', zone: '3#楼 8F 东侧', collector: '周强 · 安全员', collectedAt: '2026-08-15T09:05:00+08:00', status: 'distributed', candidates: [{ title: '东侧临边踢脚板局部松动', selected: true }], attachments: [{ name: '东侧临边整改前.jpg', type: 'image/jpeg', stored: false }], recognitionMode: '文件名候选 · 人工校核', distributedAt: '2026-08-15T09:16:00+08:00', businessRefs: [{ kind: 'quality', id: 501, title: '东侧临边踢脚板局部松动' }] },
+  { id: 1003, title: '材料到场口述记录', source: 'voice', target: 'material', zone: '项目部', collector: '刘颖 · 材料员', collectedAt: '2026-08-14T16:40:00+08:00', status: 'archived', rawText: '明早加气砌块到场，核对数量和合格证。', candidates: [{ title: '明早加气砌块到场，核对数量和合格证', selected: true }], attachments: [], recognitionMode: '浏览器语音转写 · 人工校核', archivedAt: '2026-08-14T17:10:00+08:00' }
+];
+
+const defaultTechnicalDocuments = [
+  { id: 1501, type: 'drawing', code: '建施-3#-08F-01', title: '3#楼8层建筑施工图', building: '3#楼', issuedBy: '周海 · 技术负责人', issuedAt: shiftDateKey(dailyDateKey, -12), scope: '3#楼 8F', content: '用于3#楼8层墙柱、梁板定位及建筑做法核对，现场施工前须与结构图、机电预留预埋图会审。', files: [{ name: '3号楼8层建筑施工图.pdf', stored: false }], status: 'valid' },
+  { id: 1502, type: 'change', code: 'SJBG-2026-018', title: '梁板洞口附加筋调整', building: '3#楼', issuedBy: '周海 · 技术负责人', issuedAt: dailyDateKey, scope: '3#楼 8F 东侧设备洞口', content: '3#楼8F东侧设备洞口附加筋按变更图施工，原节点做法停止使用。施工员须向钢筋班组完成线上交底并留存确认记录。', files: [{ name: 'SJBG-2026-018梁板洞口附加筋调整.pdf', stored: false }], status: 'valid' },
+  { id: 1503, type: 'contact', code: 'GCLXH-2026-027', title: '地下室设备房桥架弯通供货协调', building: '地下室', issuedBy: '孙明 · 机电工程师', issuedAt: shiftDateKey(dailyDateKey, -1), scope: '地下室 B2 区设备房', content: '请供应单位在次日08:00前补齐桥架弯通6个，并由材料员核对规格、数量及合格证明。', files: [{ name: '工程联系函-桥架弯通供货.pdf', stored: false }], status: 'valid' },
+  { id: 1504, type: 'instruction', code: 'ZLD-2026-032', title: '浇筑前复核洞口及预埋', building: '3#楼', issuedBy: '周海 · 技术负责人', issuedAt: dailyDateKey, scope: '3#楼 8F 梁板', content: '混凝土浇筑前由土建、机电共同复核全部洞口及预埋件，形成签字记录后方可放行。', files: [{ name: 'ZLD-2026-032施工指令单.pdf', stored: false }], status: 'valid' }
+];
+
+const defaultCostDocuments = [
+  { id: 1601, type: 'contract', code: 'HT-2026-015', title: '3#楼主体结构劳务分包合同', party: '贵州建工劳务有限公司', amount: '¥3,860,000', zone: '3#楼主体结构', issuedAt: shiftDateKey(dailyDateKey, -30), content: '约定3#楼主体结构钢筋、模板、混凝土劳务施工范围、综合单价、计量规则、付款节点及安全质量责任。', files: [{ name: '3号楼主体劳务分包合同.pdf', stored: false }], status: 'valid' },
+  { id: 1602, type: 'economic', code: 'JJHD-2026-009', title: '3#楼8F洞口附加筋调整经济核定', party: '建设单位 / 总包单位', amount: '待核定', zone: '3#楼 8F 东侧设备洞口', issuedAt: dailyDateKey, content: '因设计变更SJBG-2026-018增加洞口附加钢筋，核定新增钢筋用量、人工投入及措施费用，作为后续结算依据。', files: [{ name: 'JJHD-2026-009经济核定单.pdf', stored: false }], status: 'pending' },
+  { id: 1603, type: 'quantity', code: 'GCLQR-2026-021', title: '地下室B2区桥架变更工程量确认', party: '机电分包 / 现场施工员', amount: '¥28,600', zone: '地下室 B2 区设备房', issuedAt: shiftDateKey(dailyDateKey, -1), content: '现场共同确认桥架变更安装长度、弯通数量及支吊架增补工程量，附测量记录和签字照片。', files: [{ name: '地下室桥架现场工程量确认单.pdf', stored: false }], status: 'confirmed' }
+];
+
+const defaultDailyExecution = [
+  { taskId: 1, dayPlanId: 3041, weekPlanId: 203, date: dailyDateKey, team: '钢筋班组', plannedWorkers: 22, actualWorkers: 20, progress: 65, actualQuantity: '梁板钢筋完成 18.6 t', materialPercent: 88, materialText: '钢筋已到场，复试报告待确认', documentDone: 3, documentTotal: 4, documentText: '复试报告待闭环', note: '东区梁板绑扎完成，等待西区收尾', technicalNotice: { type: '设计变更', code: 'SJBG-2026-018', title: '梁板洞口附加筋调整', detail: '3#楼8F东侧设备洞口附加筋按变更图施工，原节点做法停止使用。', issuedBy: '周海 · 技术负责人', issuedAt: `${dailyDateKey}T07:20:00+08:00`, requiredRoles: ['施工员', '钢筋班组'], acknowledgedBy: ['吴晨 · 施工员'] } },
+  { taskId: 2, dayPlanId: 3042, weekPlanId: 204, date: dailyDateKey, team: '木工一班', plannedWorkers: 18, actualWorkers: 14, progress: 48, actualQuantity: '墙柱模板加固完成 12 跨', materialPercent: 100, materialText: '模板及加固材料满足', documentDone: 2, documentTotal: 2, documentText: '交底、检查记录齐全', note: '人员少 4 人，南侧墙柱待完成' },
+  { taskId: 3, dayPlanId: 3043, weekPlanId: 205, date: dailyDateKey, team: '机电二组', plannedWorkers: 12, actualWorkers: 12, progress: 72, actualQuantity: '桥架安装完成 46 m', materialPercent: 70, materialText: '水平桥架够用，弯通缺 6 个', documentDone: 2, documentTotal: 3, documentText: '隐蔽验收记录待签字', note: 'B2区主通道完成，转入设备房' },
+  { taskId: 4, dayPlanId: 3044, weekPlanId: 203, date: dailyDateKey, team: '混凝土班组', plannedWorkers: 16, actualWorkers: 16, progress: 20, actualQuantity: '浇筑前准备完成', materialPercent: 100, materialText: 'C35混凝土计划已审批', documentDone: 3, documentTotal: 5, documentText: '钢筋复试、隐蔽验收待闭环', note: '资料门禁未解除，暂不允许浇筑', technicalNotice: { type: '施工指令', code: 'ZLD-2026-032', title: '浇筑前复核洞口及预埋', detail: '混凝土浇筑前由土建、机电共同复核全部洞口及预埋件，签字后方可放行。', issuedBy: '周海 · 技术负责人', issuedAt: `${dailyDateKey}T08:05:00+08:00`, requiredRoles: ['土建工程师', '机电工程师', '混凝土班组'], acknowledgedBy: [] } },
+  { taskId: 5, dayPlanId: 3045, weekPlanId: 207, date: dailyDateKey, team: '设备组', plannedWorkers: 2, actualWorkers: 2, progress: 100, actualQuantity: '日检 1 台', materialPercent: 100, materialText: '备件齐全', documentDone: 1, documentTotal: 1, documentText: '日检记录已归档', note: '运行正常' },
+  { taskId: 6, dayPlanId: 3046, weekPlanId: 207, date: dailyDateKey, team: '文明施工班组', plannedWorkers: 6, actualWorkers: 6, progress: 100, actualQuantity: '东侧道路复查完成', materialPercent: 100, materialText: '雾炮及覆盖材料齐全', documentDone: 1, documentTotal: 1, documentText: '复查记录已完成', note: '扬尘控制正常' },
+  ...[-4, -3, -2, -1].flatMap((offset, dayIndex) => defaultTasks.map((task, taskIndex) => {
+    const progressMatrix = [[100,100,100,100,100,100],[100,100,100,100,100,100],[100,95,100,100,100,100],[92,86,94,88,100,100]];
+    const progress = progressMatrix[dayIndex][taskIndex];
+    return { taskId: task.id, dayPlanId: 3000 + dayIndex * 10 + task.id, weekPlanId: taskIndex === 0 || taskIndex === 3 ? 203 : taskIndex === 1 ? 204 : taskIndex === 2 ? 205 : 207, date: shiftDateKey(dailyDateKey, offset), team: task.owner, plannedWorkers: [22,18,12,16,2,6][taskIndex], actualWorkers: [22,17,12,16,2,6][taskIndex], progress, actualQuantity: progress >= 100 ? '按日计划完成' : `完成 ${progress}%`, materialPercent: 100, materialText: '当日材料满足', documentDone: 2, documentTotal: 2, documentText: '当日资料已核验', note: progress >= 100 ? '当日任务已闭环' : '剩余工作已转入次日跟踪' };
+  }))
+];
+
+const defaultDailyCoordination = [
+  { id: 1201, taskId: 3, category: '材料未到场', content: '地下室设备房桥架弯通还缺 6 个，明早 08:00 前需送到作业面。', requester: '机电二组', owner: '刘颖 · 材料员', due: `${dailyDateKey}T18:00`, status: 'pending', createdAt: new Date().toISOString() },
+  { id: 1202, taskId: 2, category: '人员不足', content: '木工一班明日需补充 4 人，保证11F墙柱封模节点。', requester: '木工一班', owner: '王建国 · 生产经理', due: `${dailyDateKey}T19:00`, status: 'pending', createdAt: new Date().toISOString() },
+  { id: 1203, taskId: 4, category: '验收未完成', content: '3#楼8F钢筋隐蔽验收及复试报告需在浇筑前闭环。', requester: '混凝土班组', owner: '赵磊 · 质量员', due: `${dailyDateKey}T20:00`, status: 'pending', createdAt: new Date().toISOString() }
 ];
 
 const defaultAttendance = [
@@ -197,6 +258,25 @@ let qualityChecks = JSON.parse(localStorage.getItem('zhuxu-quality-checks') || '
 let attendanceRecords = JSON.parse(localStorage.getItem('zhuxu-attendance') || 'null') || defaultAttendance;
 let safetyInspections = JSON.parse(localStorage.getItem('zhuxu-safety-inspections') || 'null') || defaultSafetyInspections;
 let siteRecords = JSON.parse(localStorage.getItem('zhuxu-site-records') || 'null') || [];
+let intakeRecords = JSON.parse(localStorage.getItem('zhuxu-intake-records') || 'null') || defaultIntakeRecords;
+let technicalDocuments = JSON.parse(localStorage.getItem('zhuxu-technical-documents') || 'null') || defaultTechnicalDocuments;
+technicalDocuments = technicalDocuments.map(item => ({ ...item, building: item.building || technicalBuildingName(item) }));
+let costDocuments = JSON.parse(localStorage.getItem('zhuxu-cost-documents') || 'null') || defaultCostDocuments;
+let dailyExecution = JSON.parse(localStorage.getItem('zhuxu-daily-execution') || 'null') || defaultDailyExecution;
+let dailyCoordination = JSON.parse(localStorage.getItem('zhuxu-daily-coordination') || 'null') || defaultDailyCoordination;
+defaultPlans.filter(item => item.level === 'week').forEach(defaultPlan => {
+  const index = plans.findIndex(item => Number(item.id) === Number(defaultPlan.id));
+  if (index < 0) plans.push(structuredClone(defaultPlan));
+  else if (plans[index].end < dailyDateKey || plans[index].start > dailyDateKey) plans[index] = { ...plans[index], start: defaultPlan.start, end: defaultPlan.end, weight: defaultPlan.weight };
+});
+defaultPlans.filter(item => item.level === 'day').forEach(defaultPlan => {
+  if (!plans.some(item => Number(item.id) === Number(defaultPlan.id))) plans.push(structuredClone(defaultPlan));
+});
+defaultDailyExecution.forEach(defaultRecord => {
+  const existing = dailyExecution.find(item => Number(item.taskId) === Number(defaultRecord.taskId) && item.date === defaultRecord.date);
+  if (!existing) dailyExecution.push(structuredClone(defaultRecord));
+  else if (!existing.dayPlanId) Object.assign(existing, { dayPlanId: defaultRecord.dayPlanId, weekPlanId: defaultRecord.weekPlanId });
+});
 attendanceRecords = attendanceRecords.map(record => ({ supplements: [], registeredAt: `${record.date}T18:00:00+08:00`, ...record }));
 Object.entries(defaultDocumentState).forEach(([key, defaults]) => {
   if (!documentState[key]) documentState[key] = structuredClone(defaults);
@@ -255,12 +335,18 @@ let activeGateChain = 'steel';
 let activePlanLevel = 'week';
 let activeResourceTab = 'materials';
 let activeQualityFilter = 'all';
+let activeIntakeFilter = 'all';
+let activeTechnicalFilter = 'all';
+let activeTechnicalBuilding = 'all';
+let activeCostFilter = 'all';
+let activeExecutionDate = dailyDateKey;
 let editingResourcePlanId = null;
 let editingConcealedAcceptanceId = null;
 let editingQualityId = null;
 let editingInspectionId = null;
 let editingTaskId = null;
 let editingPlanId = null;
+let editingIntakeId = null;
 let planRecognitionCandidates = [];
 let taskRecognitionCandidates = [];
 let selectedPhotos = [];
@@ -298,6 +384,24 @@ function persistQualityChecks() { localStorage.setItem('zhuxu-quality-checks', J
 function persistAttendance() { localStorage.setItem('zhuxu-attendance', JSON.stringify(attendanceRecords)); syncServerState('zhuxu-attendance', attendanceRecords); }
 function persistSafetyInspections() { localStorage.setItem('zhuxu-safety-inspections', JSON.stringify(safetyInspections)); syncServerState('zhuxu-safety-inspections', safetyInspections); }
 function persistSiteRecords() { localStorage.setItem('zhuxu-site-records', JSON.stringify(siteRecords)); syncServerState('zhuxu-site-records', siteRecords); }
+function persistIntakeRecords() {
+  localStorage.setItem('zhuxu-intake-records', JSON.stringify(intakeRecords));
+  syncServerState('zhuxu-intake-records', intakeRecords);
+}
+function persistTechnicalDocuments() {
+  localStorage.setItem('zhuxu-technical-documents', JSON.stringify(technicalDocuments));
+  syncServerState('zhuxu-technical-documents', technicalDocuments);
+  if ($('#technicalBadge')) $('#technicalBadge').textContent = technicalDocuments.length;
+}
+function persistCostDocuments() {
+  if (authenticatedUserId && !hasCostAccess()) { updateCostAccessUI(); return; }
+  localStorage.setItem('zhuxu-cost-documents', JSON.stringify(costDocuments));
+  syncServerState('zhuxu-cost-documents', costDocuments);
+  if ($('#costBadge')) $('#costBadge').textContent = costDocuments.length;
+}
+function persistDailyExecution() { localStorage.setItem('zhuxu-daily-execution', JSON.stringify(dailyExecution)); syncServerState('zhuxu-daily-execution', dailyExecution); }
+function persistDailyCoordination() { localStorage.setItem('zhuxu-daily-coordination', JSON.stringify(dailyCoordination)); syncServerState('zhuxu-daily-coordination', dailyCoordination); updateDailyBadge(); }
+function updateDailyBadge() { if ($('#dailyBadge')) $('#dailyBadge').textContent = dailyCoordination.filter(item => item.status !== 'resolved').length; }
 
 function ensureMaterialDocumentChain(entry) {
   if (!entry || entry.type !== 'material' || entry.movement !== '进场') return null;
@@ -395,6 +499,32 @@ function getCurrentUser() {
   return organization.find(person => String(person.id) === String(currentUserId)) || organization[0] || null;
 }
 
+const COST_ACCESS_ROLE_PATTERN = /项目经理|商务|成本|造价/;
+
+function hasCostAccess(person = getCurrentUser()) {
+  const serverPermission = window.ZhuxuServer?.user?.permissions?.cost;
+  if (typeof serverPermission === 'boolean' && String(window.ZhuxuServer.user.id) === String(person?.id)) return serverPermission;
+  return Boolean(authenticatedUserId && person && COST_ACCESS_ROLE_PATTERN.test(String(person.role || '')));
+}
+
+function updateCostAccessUI() {
+  const nav = $('[data-view="cost"]');
+  const badge = $('#costBadge');
+  if (!nav || !badge) return;
+  const allowed = hasCostAccess();
+  nav.classList.toggle('access-locked', !allowed);
+  nav.setAttribute('aria-label', allowed ? '成控文件' : '成控文件，当前岗位无访问权限');
+  nav.title = allowed ? '进入成控文件' : '仅项目经理、商务、成本或造价岗位可进入';
+  badge.textContent = allowed ? costDocuments.length : '锁';
+}
+
+function openCostAccessDenied() {
+  const person = getCurrentUser();
+  $('#costAccessCurrentRole').textContent = `当前账号：${person?.name || '未登录'} · ${person?.role || '未知岗位'}`;
+  $('#costAccessDialog').showModal();
+  closeSidebar();
+}
+
 function organizationPersonLabel(person) {
   return person ? `${person.name} · ${person.role}` : '';
 }
@@ -430,11 +560,13 @@ async function loginWithCredentials(account, password, remember = false) {
   if (!person || !initialPasswordFor(person) || String(password || '') !== initialPasswordFor(person)) return null;
   authenticatedUserId = String(person.id);
   currentUserId = authenticatedUserId;
+  costDocuments = hasCostAccess(person) ? (JSON.parse(localStorage.getItem('zhuxu-cost-documents') || 'null') || defaultCostDocuments) : [];
   sessionStorage.removeItem(AUTH_SESSION_KEY);
   localStorage.removeItem(AUTH_REMEMBER_KEY);
   (remember ? localStorage : sessionStorage).setItem(remember ? AUTH_REMEMBER_KEY : AUTH_SESSION_KEY, authenticatedUserId);
   renderCurrentUser();
   setAuthenticationView(true);
+  navigate('intake');
   return person;
 }
 
@@ -458,6 +590,7 @@ function renderCurrentUser() {
   $('#currentUserName').textContent = person.name;
   $('#currentUserRole').textContent = person.role;
   $('#accountSwitcherButton').title = `当前账号：${person.account || person.name}，点击退出`;
+  updateCostAccessUI();
 }
 
 function matchPersonByRole(role) {
@@ -748,7 +881,10 @@ function updateMetrics() {
 }
 
 const subviews = {
+  intake: { title: '每日执行中心', desc: '把日计划落实到管理人员和班组，同时跟踪技术、材料、资料、质量安全及明日协调事项', action: '记录施工反馈', content: 'intake' },
   schedule: { title: '进度计划', desc: '总计划逐级分解到月、周和每日执行事项', action: '新建计划', content: 'schedule' },
+  technical: { title: '技术文件', desc: '图纸、设计变更、联系函和指令单统一共享，关联任务后完成线上交底', action: '上传技术文件', content: 'technical' },
+  cost: { title: '成控文件', desc: '合同、经济核定单和现场工程量确认单统一归档，形成过程成本依据', action: '新增成控文件', content: 'cost' },
   tasks: { title: '任务协同', desc: '把每项工作落实到区域、人员和完成标准', action: '新建任务', content: 'table' },
   followups: { title: '协作催办', desc: '资料员和管理人员可以对缺失资料、前置工序及现场配合发起催办', action: '发起催办', content: 'followups' },
   materials: { title: '材料与设备', desc: '材料、设备分别建账，并用资源计划提前暴露供需缺口', action: '登记资源', content: 'resources' },
@@ -772,11 +908,63 @@ function renderFollowupsBody() {
     </div>`;
 }
 
+function getPlanExecutionRecord(plan) {
+  return dailyExecution.find(item => Number(item.dayPlanId) === Number(plan.id))
+    || dailyExecution.find(item => Number(item.taskId) === Number(plan.taskId) && item.date === plan.start);
+}
+
+function renderPlanRow(plan, groupedDay = false) {
+  const parent = plans.find(item => Number(item.id) === Number(plan.parentId));
+  const record = getPlanExecutionRecord(plan);
+  const progress = Number(record?.progress || 0);
+  return `<article class="plan-row${groupedDay ? ' day-plan-row' : ''}"><div><strong>${escapeHtml(plan.title)}</strong><small>来源：${escapeHtml(plan.source || '手工新建')}${parent ? ` · 所属周计划：${escapeHtml(parent.title)}` : ''}</small></div>${groupedDay ? `<span>${escapeHtml(plan.ownerRole || '待明确')}</span><span class="day-plan-progress ${progress >= 100 ? 'complete' : ''}">完成 ${progress}%</span>` : `<span>${escapeHtml(plan.start)}</span><span>${escapeHtml(plan.end)}</span><span>${escapeHtml(plan.ownerRole || '待明确')}</span>`}<button class="edit-action" data-edit-plan="${plan.id}">编辑计划</button></article>`;
+}
+
+function formatDailyPlanGroupLabel(dateKey) {
+  const parts = String(dateKey || '').split('-').map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return `${escapeHtml(dateKey || '未定日期')}计划`;
+  const weekLabel = ['周日','周一','周二','周三','周四','周五','周六'][new Date(parts[0], parts[1] - 1, parts[2]).getDay()];
+  return `${parts[1]}月${parts[2]}日计划<span>${weekLabel}</span>`;
+}
+
+function renderDailyPlanGroups(dayPlans) {
+  const groups = dayPlans.reduce((result, plan) => {
+    const dateKey = plan.start || '未定日期';
+    if (!result.has(dateKey)) result.set(dateKey, []);
+    result.get(dateKey).push(plan);
+    return result;
+  }, new Map());
+  const sortedGroups = [...groups.entries()].sort(([dateA], [dateB]) => String(dateB).localeCompare(String(dateA)));
+  const containsToday = sortedGroups.some(([date]) => date === dailyDateKey);
+  return `<div class="daily-plan-archive">${sortedGroups.map(([dateKey, datePlans], index) => {
+    const progresses = datePlans.map(plan => Number(getPlanExecutionRecord(plan)?.progress || 0));
+    const completed = progresses.filter(progress => progress >= 100).length;
+    const average = progresses.length ? Math.round(progresses.reduce((sum, progress) => sum + progress, 0) / progresses.length) : 0;
+    const shouldOpen = dateKey === dailyDateKey || (!containsToday && index === 0);
+    return `<details class="daily-plan-group" data-plan-date="${escapeHtml(dateKey)}"${shouldOpen ? ' open' : ''}><summary><span class="daily-plan-date-mark">${String(dateKey).slice(8,10) || '--'}</span><div><strong>${formatDailyPlanGroupLabel(dateKey)}</strong><small>${escapeHtml(dateKey)} · 点击展开或收起当天具体计划</small></div><div class="daily-plan-group-stats"><span><b>${datePlans.length}</b> 项任务</span><span><b>${completed}</b> 项完成</span><em>${average}%</em></div><i aria-hidden="true">⌄</i></summary><div class="daily-plan-group-body">${datePlans.map(plan => renderPlanRow(plan, true)).join('')}</div></details>`;
+  }).join('')}</div>`;
+}
+
 function renderScheduleBody() {
   const levels = { master: '总计划', month: '月计划', week: '周计划', day: '日计划' };
   const visiblePlans = plans.filter(plan => plan.level === activePlanLevel);
-  return `<div class="plan-level-tabs" role="tablist" aria-label="计划层级">${Object.entries(levels).map(([key, label]) => `<button type="button" class="${key === activePlanLevel ? 'active' : ''}" data-plan-level="${key}">${label}<b>${plans.filter(plan => plan.level === key).length}</b></button>`).join('')}</div>
-    <div class="plan-list">${visiblePlans.map(plan => `<article class="plan-row"><div><strong>${plan.title}</strong><small>来源：${plan.source || '手工新建'}</small></div><span>${plan.start}</span><span>${plan.end}</span><span>${plan.ownerRole}</span><button class="edit-action" data-edit-plan="${plan.id}">编辑计划</button></article>`).join('') || '<div class="resource-empty">当前层级还没有计划，点击“新建计划”添加</div>'}</div>`;
+  const content = !visiblePlans.length
+    ? '<div class="resource-empty">当前层级还没有计划，点击“新建计划”添加</div>'
+    : activePlanLevel === 'day'
+      ? renderDailyPlanGroups(visiblePlans)
+      : `<div class="plan-list">${visiblePlans.map(plan => renderPlanRow(plan)).join('')}</div>`;
+  return `<div class="plan-level-tabs" role="tablist" aria-label="计划层级">${Object.entries(levels).map(([key, label]) => `<button type="button" class="${key === activePlanLevel ? 'active' : ''}" data-plan-level="${key}">${label}<b>${plans.filter(plan => plan.level === key).length}</b></button>`).join('')}</div>${content}`;
+}
+
+function updatePlanParentField(selectedParentId = '') {
+  const form = $('#planForm');
+  const isDay = form.elements.level.value === 'day';
+  const field = $('#parentWeekPlanField');
+  field.hidden = !isDay;
+  const start = form.elements.start.value || dailyDateKey;
+  const weekPlans = plans.filter(plan => plan.level === 'week' && plan.start <= start && plan.end >= start);
+  form.elements.parentId.innerHTML = `<option value="">系统按日期自动匹配</option>${weekPlans.map(plan => `<option value="${plan.id}">${escapeHtml(plan.title)} · ${plan.start}—${plan.end}</option>`).join('')}`;
+  if (selectedParentId && weekPlans.some(plan => Number(plan.id) === Number(selectedParentId))) form.elements.parentId.value = String(selectedParentId);
 }
 
 function openPlanDialog(plan = null) {
@@ -791,6 +979,7 @@ function openPlanDialog(plan = null) {
   form.elements.start.value = plan?.start || new Date().toISOString().slice(0, 10);
   form.elements.end.value = plan?.end || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
   form.elements.ownerRole.value = plan?.ownerRole || '生产经理';
+  updatePlanParentField(plan?.parentId || '');
   $('#planDialog .dialog-heading h2').textContent = plan ? '编辑并更新计划' : '新建或导入计划';
   $('#planDialog').showModal();
 }
@@ -798,6 +987,76 @@ function openPlanDialog(plan = null) {
 function setPlanMode(mode) {
   $$('[data-plan-mode]').forEach(button => button.classList.toggle('active', button.dataset.planMode === mode));
   $('#planImportPanel').hidden = mode !== 'import';
+}
+
+const technicalTypeLabels = { drawing: '施工图纸', change: '设计变更', contact: '联系函', instruction: '指令单' };
+
+function technicalBuildingName(documentItem) {
+  const source = `${documentItem.scope || ''} ${documentItem.title || ''}`;
+  return documentItem.building || source.match(/\d+#楼|地下室|室外工程|项目部/)?.[0] || '综合图纸';
+}
+
+function renderTechnicalDocumentsBody() {
+  const types = [['all','全部'],['drawing','施工图纸'],['change','设计变更'],['contact','联系函'],['instruction','指令单']];
+  const drawings = technicalDocuments.filter(item => item.type === 'drawing');
+  const drawingFolders = [...new Set(drawings.map(technicalBuildingName))].sort((a,b) => a.localeCompare(b,'zh-CN'));
+  const visible = technicalDocuments.filter(item => {
+    if (activeTechnicalFilter !== 'all' && item.type !== activeTechnicalFilter) return false;
+    if (activeTechnicalFilter === 'drawing' && activeTechnicalBuilding !== 'all' && technicalBuildingName(item) !== activeTechnicalBuilding) return false;
+    return activeTechnicalFilter !== 'drawing' || activeTechnicalBuilding !== 'all';
+  }).sort((a,b) => String(b.issuedAt).localeCompare(String(a.issuedAt)));
+  const drawingBrowser = activeTechnicalFilter === 'drawing' ? `<section class="technical-building-browser"><div class="technical-building-heading"><div><span>DRAWING ARCHIVE</span><strong>按单体查看施工图</strong><small>先打开单体文件夹，再选择对应图纸查看正文和上传原文件</small></div>${activeTechnicalBuilding !== 'all' ? `<button type="button" data-technical-building="all">← 返回全部单体</button>` : ''}</div><div class="technical-building-folders">${drawingFolders.map(building => { const items = drawings.filter(item => technicalBuildingName(item) === building); const latest = [...items].sort((a,b) => String(b.issuedAt).localeCompare(String(a.issuedAt)))[0]; return `<button type="button" class="${activeTechnicalBuilding === building ? 'active' : ''}" data-technical-building="${escapeHtml(building)}"><i><span></span></i><strong>${escapeHtml(building)}</strong><small>${items.length} 张施工图 · 最近更新 ${escapeHtml(latest?.issuedAt || '未登记')}</small><em>打开文件夹 →</em></button>`; }).join('') || '<div class="resource-empty">还没有施工图文件夹，上传图纸时填写所属单体后自动建立。</div>'}</div>${activeTechnicalBuilding === 'all' && drawingFolders.length ? '<p class="technical-folder-hint">请选择一个单体文件夹查看其中的施工图。</p>' : ''}</section>` : '';
+  return `<section class="technical-file-overview"><div><span>TECHNICAL FILE REGISTER</span><h2>项目技术文件统一入口</h2><p>技术负责人上传原文件并注明适用部位，现场人员可随时查看；关联任务中的变更和指令会突出风险提醒。</p></div><div>${types.slice(1).map(([key,label]) => `<button type="button" class="${activeTechnicalFilter === key ? 'active' : ''}" data-technical-overview-filter="${key}"><strong>${technicalDocuments.filter(item => item.type === key).length}</strong><span>${label}</span><em>${key === 'drawing' ? '打开单体文件夹' : '直接查看文件'} →</em></button>`).join('')}</div></section>
+    <div class="technical-file-tabs">${types.map(([key,label]) => `<button type="button" class="${activeTechnicalFilter === key ? 'active' : ''}" data-technical-filter="${key}">${label}<b>${key === 'all' ? technicalDocuments.length : technicalDocuments.filter(item => item.type === key).length}</b></button>`).join('')}</div>
+    ${drawingBrowser}
+    ${activeTechnicalFilter === 'drawing' && activeTechnicalBuilding === 'all' ? '' : `<section class="technical-file-register"><div class="technical-file-row header"><span>类别 / 编号</span><span>文件名称与适用范围</span><span>发布人</span><span>发布日期</span><span>原文件</span><span>操作</span></div>${visible.map(item => `<button type="button" class="technical-file-row" data-technical-document="${item.id}"><span><i class="${item.type}">${technicalTypeLabels[item.type]?.slice(0,1) || '技'}</i><b>${escapeHtml(technicalTypeLabels[item.type] || item.type)}</b><small>${escapeHtml(item.code)}</small></span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(technicalBuildingName(item))} · ${escapeHtml(item.scope)}</small></span><span>${escapeHtml(item.issuedBy)}</span><span>${escapeHtml(item.issuedAt)}</span><span>${(item.files || []).length} 个附件</span><em>${item.type === 'drawing' ? '打开图纸' : '查看内容'} →</em></button>`).join('') || '<div class="resource-empty">当前类别还没有技术文件，点击右上角上传。</div>'}</section>`}`;
+}
+
+function openTechnicalDocumentDialog() {
+  const form = $('#technicalDocumentForm');
+  form.reset();
+  form.elements.issuedBy.value = matchPersonByRole('技术负责人');
+  form.elements.issuedAt.value = dailyDateKey;
+  $('#technicalDocumentDialog').showModal();
+}
+
+function openTechnicalDocumentDetail(documentId) {
+  const documentItem = technicalDocuments.find(item => Number(item.id) === Number(documentId));
+  if (!documentItem) return;
+  $('#technicalDocumentDetailType').textContent = `${technicalTypeLabels[documentItem.type] || '技术文件'} · ${documentItem.code}`;
+  $('#technicalDocumentDetailTitle').textContent = documentItem.title;
+  $('#technicalDocumentDetailBody').innerHTML = `<section class="technical-document-paper"><div class="technical-document-stamp ${documentItem.type}"><span>${technicalTypeLabels[documentItem.type] || '技术文件'}</span><strong>${escapeHtml(documentItem.code)}</strong></div><h3>${escapeHtml(documentItem.title)}</h3><p>${escapeHtml(documentItem.content)}</p><dl><div><dt>所属单体 / 分区</dt><dd>${escapeHtml(technicalBuildingName(documentItem))}</dd></div><div><dt>适用部位</dt><dd>${escapeHtml(documentItem.scope)}</dd></div><div><dt>发布人</dt><dd>${escapeHtml(documentItem.issuedBy)}</dd></div><div><dt>发布日期</dt><dd>${escapeHtml(documentItem.issuedAt)}</dd></div><div><dt>文件状态</dt><dd>现行有效</dd></div></dl></section><section class="technical-document-files"><strong>${documentItem.type === 'drawing' ? '施工图原文件' : '上传的原文件'} · ${(documentItem.files || []).length}</strong>${(documentItem.files || []).map((file,index) => `<button type="button" data-technical-detail-file="${index}"><i>${attachmentKind(file) === 'pdf' ? 'PDF' : attachmentKind(file) === 'image' ? 'IMG' : 'FILE'}</i><span><b>${escapeHtml(file.name)}</b><small>${file.stored ? '点击直接在线查看原文件' : '示例文件名；重新上传后可在线查看'}</small></span><em>${documentItem.type === 'drawing' ? '打开图纸' : '查看'}</em></button>`).join('') || '<p>尚未上传原文件</p>'}</section>`;
+  $$('[data-technical-detail-file]', $('#technicalDocumentDetailBody')).forEach(button => button.addEventListener('click', () => previewStoredAttachment((documentItem.files || [])[Number(button.dataset.technicalDetailFile)])));
+  $('#technicalDocumentDetailDialog').showModal();
+}
+
+const costTypeLabels = { contract: '合同', economic: '经济核定单', quantity: '现场工程量确认单' };
+
+function renderCostDocumentsBody() {
+  if (!hasCostAccess()) return '<section class="cost-restricted-state"><span>¥</span><strong>当前岗位无成控文件权限</strong><p>请使用项目经理、商务、成本或造价岗位账号登录。</p></section>';
+  const types = [['all','全部'],['contract','合同'],['economic','经济核定单'],['quantity','现场工程量确认单']];
+  const visible = costDocuments.filter(item => activeCostFilter === 'all' || item.type === activeCostFilter).sort((a,b) => String(b.issuedAt).localeCompare(String(a.issuedAt)));
+  const recognizedAmount = costDocuments.reduce((sum,item) => sum + Number(String(item.amount || '').replace(/[^\d.]/g,'')),0);
+  return `<section class="cost-control-hero"><div><span>COST CONTROL ARCHIVE</span><h2>过程成本依据统一归档</h2><p>合同明确计价边界，经济核定单记录价格变化，现场工程量确认单锁定实际发生量；原件和签字依据随时可查。</p><strong>已登记金额 <b>¥${recognizedAmount.toLocaleString('zh-CN')}</b></strong></div><div>${types.slice(1).map(([key,label]) => `<button type="button" class="${activeCostFilter === key ? 'active' : ''}" data-cost-overview-filter="${key}"><i>${key === 'contract' ? '合' : key === 'economic' ? '核' : '量'}</i><span><strong>${costDocuments.filter(item => item.type === key).length}</strong><small>${label}</small></span><em>进入台账 →</em></button>`).join('')}</div></section><div class="cost-file-tabs">${types.map(([key,label]) => `<button type="button" class="${activeCostFilter === key ? 'active' : ''}" data-cost-filter="${key}">${label}<b>${key === 'all' ? costDocuments.length : costDocuments.filter(item => item.type === key).length}</b></button>`).join('')}</div><section class="cost-file-register"><div class="cost-file-row header"><span>类别 / 编号</span><span>文件名称与部位</span><span>责任单位</span><span>涉及金额</span><span>日期</span><span>操作</span></div>${visible.map(item => `<button type="button" class="cost-file-row" data-cost-document="${item.id}"><span><i class="${item.type}">${item.type === 'contract' ? '合' : item.type === 'economic' ? '核' : '量'}</i><b>${escapeHtml(costTypeLabels[item.type] || item.type)}</b><small>${escapeHtml(item.code)}</small></span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.zone)}</small></span><span>${escapeHtml(item.party)}</span><strong class="cost-amount">${escapeHtml(item.amount || '待核定')}</strong><span>${escapeHtml(item.issuedAt)}</span><em>查看依据 →</em></button>`).join('') || '<div class="resource-empty">当前类别还没有成控文件，点击右上角新增。</div>'}</section>`;
+}
+
+function openCostDocumentDialog() {
+  if (!hasCostAccess()) { openCostAccessDenied(); return; }
+  const form = $('#costDocumentForm');
+  form.reset();
+  form.elements.issuedAt.value = dailyDateKey;
+  $('#costDocumentDialog').showModal();
+}
+
+function openCostDocumentDetail(documentId) {
+  if (!hasCostAccess()) { openCostAccessDenied(); return; }
+  const documentItem = costDocuments.find(item => Number(item.id) === Number(documentId));
+  if (!documentItem) return;
+  $('#costDocumentDetailType').textContent = `${costTypeLabels[documentItem.type] || '成控文件'} · ${documentItem.code}`;
+  $('#costDocumentDetailTitle').textContent = documentItem.title;
+  $('#costDocumentDetailBody').innerHTML = `<section class="cost-document-paper"><div class="cost-document-stamp ${documentItem.type}"><span>${escapeHtml(costTypeLabels[documentItem.type] || '成控文件')}</span><strong>${escapeHtml(documentItem.code)}</strong></div><h3>${escapeHtml(documentItem.title)}</h3><p>${escapeHtml(documentItem.content)}</p><dl><div><dt>责任单位 / 对方单位</dt><dd>${escapeHtml(documentItem.party)}</dd></div><div><dt>所属单体 / 部位</dt><dd>${escapeHtml(documentItem.zone)}</dd></div><div><dt>涉及金额</dt><dd class="cost-detail-amount">${escapeHtml(documentItem.amount || '待核定')}</dd></div><div><dt>签发 / 确认日期</dt><dd>${escapeHtml(documentItem.issuedAt)}</dd></div></dl></section><section class="technical-document-files"><strong>成本依据原文件 · ${(documentItem.files || []).length}</strong>${(documentItem.files || []).map((file,index) => `<button type="button" data-cost-detail-file="${index}"><i>${attachmentKind(file) === 'pdf' ? 'PDF' : attachmentKind(file) === 'image' ? 'IMG' : 'FILE'}</i><span><b>${escapeHtml(file.name)}</b><small>${file.stored ? '点击在线查看签章原件' : '示例文件名；重新上传后可在线查看'}</small></span><em>打开原件</em></button>`).join('') || '<p>尚未上传原文件</p>'}</section>`;
+  $$('[data-cost-detail-file]', $('#costDocumentDetailBody')).forEach(button => button.addEventListener('click', () => previewStoredAttachment((documentItem.files || [])[Number(button.dataset.costDetailFile)])));
+  $('#costDocumentDetailDialog').showModal();
 }
 
 function resourceApprovalSummary(plan) {
@@ -1532,11 +1791,347 @@ function openAttendanceSupplement(recordId) {
   $('#attendanceSupplementDialog').showModal();
 }
 
+const intakeSourceLabels = { file: '文件 / 表格', photo: '现场照片', voice: '语音记录', manual: '手工记录' };
+const intakeTargetLabels = { task: '任务协同', plan: '进度计划', material: '材料需求', document: '资料催办', quality: '质量问题', record: '现场记录' };
+const intakeStatusLabels = { review: '待校核', distributed: '已分发', archived: '已归档' };
+
+function currentOperatorLabel() {
+  const person = organization.find(item => String(item.id) === String(currentUserId)) || organization[0];
+  return person ? `${person.name} · ${person.role}` : '项目管理人员';
+}
+
+function formatIntakeTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value || '未记录') : date.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderCollectionRegister() {
+  const counts = {
+    review: intakeRecords.filter(item => item.status === 'review').length,
+    distributed: intakeRecords.filter(item => item.status === 'distributed').length,
+    archived: intakeRecords.filter(item => item.status === 'archived').length
+  };
+  const visible = intakeRecords
+    .filter(item => activeIntakeFilter === 'all' || item.status === activeIntakeFilter)
+    .sort((a, b) => String(b.collectedAt).localeCompare(String(a.collectedAt)));
+  const sourceCount = new Set(intakeRecords.map(item => item.source)).size;
+  return `<section class="intake-overview">
+      <div class="intake-pipeline" aria-label="信息采集处理流程">
+        <div class="intake-pipeline-heading"><div><span>INFORMATION FLOW</span><strong>现场信息处理轨道</strong></div><p>原始信息不直接进入台账，先识别、再校核、后分发</p></div>
+        <div class="intake-pipeline-rail">
+          <article class="done"><i>01</i><div><strong>采集</strong><span>${intakeRecords.length} 条来源记录</span></div></article>
+          <article class="active"><i>02</i><div><strong>识别与校核</strong><span>${counts.review} 条待人工确认</span></div></article>
+          <article><i>03</i><div><strong>业务分发</strong><span>${counts.distributed} 条已写入台账</span></div></article>
+          <article><i>04</i><div><strong>归档追溯</strong><span>${counts.archived} 条已归档</span></div></article>
+        </div>
+      </div>
+      <div class="intake-kpis">
+        <article><span>多源入口</span><strong>${sourceCount}<small> 类</small></strong><p>文件、照片、语音和手工记录</p></article>
+        <article class="attention"><span>待人工校核</span><strong>${counts.review}<small> 条</small></strong><p>未经确认不会写入业务台账</p></article>
+        <article><span>已完成分发</span><strong>${counts.distributed}<small> 条</small></strong><p>保留来源与目标记录编号</p></article>
+      </div>
+    </section>
+    <section class="intake-register">
+      <div class="intake-register-heading"><div><strong>采集登记簿</strong><small>点击记录查看原始附件、修改识别结果并执行分发</small></div><div class="intake-filters">${[['all','全部'],['review','待校核'],['distributed','已分发'],['archived','已归档']].map(([key,label]) => `<button type="button" class="${activeIntakeFilter === key ? 'active' : ''}" data-intake-filter="${key}">${label}<b>${key === 'all' ? intakeRecords.length : counts[key]}</b></button>`).join('')}</div></div>
+      <div class="intake-list">
+        <div class="intake-row header"><span>来源 / 采集主题</span><span>区域与采集人</span><span>采集时间</span><span>拟分发业务</span><span>处理状态</span><span>操作</span></div>
+        ${visible.map(item => `<button type="button" class="intake-row" data-review-intake="${item.id}"><span class="intake-title-cell"><i class="source-${item.source}">${item.source === 'photo' ? '图' : item.source === 'voice' ? '音' : item.source === 'manual' ? '录' : '文'}</i><span><strong>${escapeHtml(item.title)}</strong><small>${intakeSourceLabels[item.source] || '其他来源'} · ${(item.attachments || []).length} 个原始附件 · ${(item.candidates || []).length} 条候选项</small></span></span><span>${escapeHtml(item.zone)}<small>${escapeHtml(item.collector)}</small></span><span>${formatIntakeTime(item.collectedAt)}</span><span>${intakeTargetLabels[item.target] || '待判断'}</span><span><em class="intake-status ${item.status}">${intakeStatusLabels[item.status] || item.status}</em>${item.businessRefs?.length ? `<small>${item.businessRefs.length} 条业务记录</small>` : ''}</span><b>${item.status === 'review' ? '校核 / 分发' : '查看追溯'}</b></button>`).join('') || '<div class="resource-empty">当前筛选条件下没有采集记录</div>'}
+      </div>
+    </section>`;
+}
+
+function getDailyExecutionRecord(taskId, date = activeExecutionDate, dayPlan = null) {
+  let record = dailyExecution.find(item => (dayPlan && Number(item.dayPlanId) === Number(dayPlan.id)) || (Number(item.taskId) === Number(taskId) && item.date === date));
+  if (!record) {
+    const task = tasks.find(item => Number(item.id) === Number(taskId));
+    record = { taskId: Number(taskId), dayPlanId: dayPlan?.id || null, weekPlanId: dayPlan?.parentId || null, date, team: task?.owner || '待安排班组', plannedWorkers: 0, actualWorkers: 0, progress: date === dailyDateKey && task?.status === 'done' ? 100 : date === dailyDateKey && task?.status === 'doing' ? 50 : 0, actualQuantity: '待反馈', materialPercent: 0, materialText: '待核对材料计划和到场情况', documentDone: 0, documentTotal: 1, documentText: '待核对资料条件', note: '尚未提交施工反馈' };
+    dailyExecution.push(record);
+  }
+  return record;
+}
+
+function getDailyTaskContexts(date = activeExecutionDate) {
+  return plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date).sort((a,b) => Number(a.id) - Number(b.id)).map(dayPlan => {
+    const storedTask = tasks.find(task => Number(task.id) === Number(dayPlan.taskId) || Number(task.dayPlanId) === Number(dayPlan.id));
+    const task = storedTask || { id: dayPlan.taskId || dayPlan.id, title: dayPlan.title, zone: '计划指定区域', owner: resolveOrganizationOwner(dayPlan.ownerRole), time: '17:00', status: 'todo', priority: 'normal', virtual: true };
+    return { task, dayPlan, record: getDailyExecutionRecord(task.id, date, dayPlan) };
+  });
+}
+
+function calculateWeeklyProgress(date = activeExecutionDate, contexts = getDailyTaskContexts(date)) {
+  const parentIds = [...new Set(contexts.map(item => Number(item.dayPlan.parentId)).filter(Boolean))];
+  const weekPlans = plans.filter(plan => plan.level === 'week' && parentIds.includes(Number(plan.id)));
+  const weekDayPlans = plans.filter(plan => plan.level === 'day' && parentIds.includes(Number(plan.parentId)));
+  const totalWeight = weekDayPlans.reduce((sum, plan) => sum + Number(plan.weight || 1), 0);
+  const duePlans = weekDayPlans.filter(plan => plan.start <= date);
+  const plannedWeight = duePlans.reduce((sum, plan) => sum + Number(plan.weight || 1), 0);
+  const actualWeight = duePlans.reduce((sum, plan) => {
+    const record = dailyExecution.find(item => Number(item.dayPlanId) === Number(plan.id)) || dailyExecution.find(item => Number(item.taskId) === Number(plan.taskId) && item.date === plan.start);
+    return sum + Number(plan.weight || 1) * Math.min(100, Number(record?.progress || 0)) / 100;
+  }, 0);
+  const planned = totalWeight ? Math.round(plannedWeight / totalWeight * 100) : 0;
+  const actual = totalWeight ? Math.round(actualWeight / totalWeight * 100) : 0;
+  const deviation = actual - planned;
+  const state = deviation < -5 ? 'lagging' : deviation > 3 ? 'ahead' : 'normal';
+  return { weekPlans, planned, actual, deviation, state, label: state === 'lagging' ? '周进度滞后' : state === 'ahead' ? '周进度提前' : '周进度正常' };
+}
+
+function dailyReadinessMeta(percent) {
+  return percent >= 100 ? { label: '满足', className: 'ready' } : percent >= 70 ? { label: '部分满足', className: 'warning' } : { label: '不满足', className: 'blocked' };
+}
+
+function documentConditionMeta(record) {
+  const complete = Number(record.documentDone || 0) >= Number(record.documentTotal || 1);
+  if (complete) return { label: '已满足', className: 'ready', hint: '资料条件已经闭环' };
+  const critical = /(复试|检测报告|不合格|门禁|未解除|未放行)/.test(String(record.documentText || ''));
+  return critical
+    ? { label: '风险项', className: 'blocked', hint: '影响工序放行，须优先闭环' }
+    : { label: '待完善', className: 'warning', hint: '属于待完成项，请按计划补充' };
+}
+
+function renderDailyTaskRow(context, index) {
+  const { task, dayPlan, record } = context;
+  const material = dailyReadinessMeta(Number(record.materialPercent || 0));
+  const documentPercent = Math.round(Number(record.documentDone || 0) / Math.max(1, Number(record.documentTotal || 1)) * 100);
+  const documents = documentConditionMeta(record);
+  const workerGap = Math.max(0, Number(record.plannedWorkers || 0) - Number(record.actualWorkers || 0));
+  const notice = record.technicalNotice;
+  const requiredAcknowledgements = notice?.requiredRoles?.length || 0;
+  const acknowledged = notice?.acknowledgedBy?.length || 0;
+  const weekPlan = plans.find(plan => Number(plan.id) === Number(dayPlan.parentId));
+  const editable = activeExecutionDate === dailyDateKey && !task.virtual;
+  return `<article class="daily-task-row ${task.priority === 'risk' ? 'risk' : ''}" data-daily-task="${task.id}" data-day-plan="${dayPlan.id}">
+    <div class="daily-task-identity"><span class="daily-sequence">${String(index + 1).padStart(2,'0')}</span><div><strong>${escapeHtml(dayPlan.title)}</strong><small>日计划 #${dayPlan.id} · ${escapeHtml(weekPlan?.title || '待关联周计划')}</small><small>${escapeHtml(task.zone)} · ${escapeHtml(task.owner)} → ${escapeHtml(record.team)}</small><div class="daily-task-progress"><i style="width:${Math.min(100, Number(record.progress || 0))}%"></i></div><em>${record.progress}% · ${escapeHtml(record.actualQuantity || '待反馈')}</em></div></div>
+    <div class="daily-worker-cell"><span>班组人员</span><strong>${record.actualWorkers}<small> / ${record.plannedWorkers} 人</small></strong><em class="${workerGap ? 'warning' : 'ready'}">${workerGap ? `缺 ${workerGap} 人` : '投入满足'}</em></div>
+    <button type="button" class="daily-condition ${notice ? 'notice' : 'ready'}" ${notice ? `data-technical-task="${task.id}"` : ''}>${notice ? '<i class="daily-risk-flag">!</i>' : ''}<span>技术交底</span><strong>${notice ? `⚠ ${escapeHtml(notice.type)}` : '常规施工'}</strong><small>${notice ? `${acknowledged}/${requiredAcknowledgements} 人确认 · 查看变更内容` : '无新增变更或指令'}</small></button>
+    <div class="daily-condition ${material.className}"><span>材料保障</span><strong>${material.label} · ${record.materialPercent}%</strong><small>${escapeHtml(record.materialText)}</small></div>
+    <div class="daily-condition ${documents.className}">${documents.className === 'blocked' ? '<i class="daily-risk-flag">!</i>' : ''}<span>资料门禁 · ${documents.label}</span><strong>${record.documentDone}/${record.documentTotal} 项</strong><small>${escapeHtml(record.documentText)} · ${documents.hint}</small></div>
+    <button type="button" class="daily-feedback-action" data-daily-feedback="${task.id}" ${editable ? '' : 'disabled'}>${editable ? '反馈进度' : '历史记录'}</button>
+  </article>`;
+}
+
+function getDailyCompletionSummary(date) {
+  const dayPlans = plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date);
+  const records = dayPlans.map(plan => dailyExecution.find(item => Number(item.dayPlanId) === Number(plan.id)) || dailyExecution.find(item => Number(item.taskId) === Number(plan.taskId) && item.date === date)).filter(Boolean);
+  const rate = records.length ? Math.round(records.reduce((sum,item) => sum + Math.min(100, Number(item.progress || 0)), 0) / dayPlans.length) : 0;
+  return { total: dayPlans.length, completed: records.filter(item => Number(item.progress) >= 100).length, rate };
+}
+
+function getCarryoverContexts(date) {
+  return plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date).sort((a,b) => Number(a.id) - Number(b.id)).map(dayPlan => {
+    const task = tasks.find(item => Number(item.id) === Number(dayPlan.taskId));
+    const record = dailyExecution.find(item => Number(item.taskId) === Number(dayPlan.taskId) && item.date === date)
+      || dailyExecution.find(item => Number(item.dayPlanId) === Number(dayPlan.id));
+    return task && record ? { task, dayPlan, record } : null;
+  }).filter(Boolean);
+}
+
+function renderIntakeBody() {
+  const taskContexts = getDailyTaskContexts(activeExecutionDate);
+  const executionRecords = taskContexts.map(item => item.record);
+  const completed = executionRecords.filter(item => Number(item.progress) >= 100).length;
+  const completionRate = executionRecords.length ? Math.round(executionRecords.reduce((sum,item) => sum + Math.min(100, Number(item.progress || 0)), 0) / executionRecords.length) : 0;
+  const weekly = calculateWeeklyProgress(activeExecutionDate, taskContexts);
+  const weekStart = shiftDateKey(activeExecutionDate, -((new Date(`${activeExecutionDate}T12:00:00`).getDay() + 6) % 7));
+  const weekDates = Array.from({ length: 7 }, (_, index) => shiftDateKey(weekStart, index));
+  const weekDayLabels = ['周一','周二','周三','周四','周五','周六','周日'];
+  const yesterday = shiftDateKey(activeExecutionDate, -1);
+  const carryovers = getCarryoverContexts(yesterday).filter(item => Number(item.record.progress || 0) < 100 && Number(item.task.id) !== 4);
+  const coordinationItems = dailyCoordination.filter(item => activeExecutionDate === dailyDateKey || String(item.due || '').startsWith(activeExecutionDate)).sort((a,b) => (a.status === 'resolved') - (b.status === 'resolved'));
+  const materialRisks = resourcePlans.map(plan => { try { return { plan, progress: getResourcePlanProgress(plan) }; } catch { return { plan, progress: { complete: false, days: 0, arrived: 0, planned: { unit: '' } } }; } }).filter(item => !item.progress.complete).slice(0, 5);
+  const documentRisks = Object.entries(documentState).flatMap(([key,group]) => (group.documents || []).filter(item => item.status !== 'done').map(item => ({ ...item, group: documentChainConfigs[key]?.label || key }))).slice(0, 6);
+  const openQuality = qualityChecks.filter(item => item.type === 'quality' && item.status !== 'closed').length;
+  const openSafety = safetyInspections.reduce((sum,item) => sum + (item.issues || []).filter(issue => issue.status !== 'closed').length, 0);
+  const currentLabel = activeExecutionDate === dailyDateKey ? '今日' : activeExecutionDate;
+  return `<section class="daily-query-bar"><div><span>执行日期</span><button type="button" data-daily-date-step="-1" aria-label="前一天">←</button><input type="date" id="dailyExecutionDate" value="${activeExecutionDate}"><button type="button" data-daily-date-step="1" aria-label="后一天">→</button><button type="button" data-daily-today ${activeExecutionDate === dailyDateKey ? 'disabled' : ''}>回到今天</button></div><p>任务来源：日进度计划 · 周完成率来自每日执行反馈 · 人员投入只读取实名制打卡记录</p></section>
+    <section class="today-plan-register"><div class="daily-section-heading"><div><strong>${currentLabel}计划</strong><small>计划名称和责任人来自当日进度计划，点击下方任务可反馈执行情况</small></div><span>${taskContexts.length} 项计划</span></div><div>${taskContexts.map((item,index) => `<article><i>${String(index + 1).padStart(2,'0')}</i><div><strong>${escapeHtml(item.dayPlan.title)}</strong><small>${escapeHtml(item.task.zone)} · 所属：${escapeHtml(plans.find(plan => Number(plan.id) === Number(item.dayPlan.parentId))?.title || '待关联周计划')}</small></div><span>责任人</span><b>${escapeHtml(item.task.owner)}</b></article>`).join('') || '<div class="resource-empty">该日期尚未编制日进度计划。</div>'}</div></section>
+    <section class="daily-command-board weekly-command-board">
+      <div class="daily-command-copy"><span>WEEKLY CONTROL · ${weekStart}—${shiftDateKey(weekStart,6)}</span><h2>本周计划完成情况</h2><p>逐日对照完成比例和实名制考勤投入；完成率来自日计划反馈，人员数据只采用劳资员上传的打卡记录。</p></div>
+      <div class="weekly-progress-compare ${weekly.state}"><div><span>所属周计划</span><strong>${weekly.weekPlans.map(item => item.title).join(' · ') || '尚未关联周计划'}</strong></div><div><span>周计划应完成</span><b>${weekly.planned}%</b><i><em style="width:${weekly.planned}%"></em></i></div><div><span>周累计实际完成</span><b>${weekly.actual}%</b><i><em style="width:${weekly.actual}%"></em></i></div><mark>${weekly.label} ${weekly.deviation > 0 ? '+' : ''}${weekly.deviation}%</mark></div>
+      <section class="weekly-daily-ledger"><div class="weekly-ledger-heading"><strong>每日完成情况</strong><span>本周日计划执行百分比</span></div><div>${weekDates.map((date,index) => { const summary = getDailyCompletionSummary(date); const state = !summary.total ? 'empty' : summary.rate >= 100 ? 'done' : date < dailyDateKey ? 'lag' : 'active'; return `<article class="${state} ${date === activeExecutionDate ? 'selected' : ''}"><span>${weekDayLabels[index]} · ${date.slice(5)}</span><strong>${summary.total ? `${summary.rate}%` : '无计划'}</strong><small>${summary.total ? `${summary.completed}/${summary.total} 项完成` : '未编制日计划'}</small><i><em style="width:${summary.rate}%"></em></i></article>`; }).join('')}</div></section>
+      <section class="weekly-workforce-ledger"><div class="weekly-ledger-heading"><strong>本周每日投入人员</strong><span>与实名制打卡人数保持一致</span></div><div>${weekDates.map((date,index) => { const attendance = attendanceRecords.find(item => item.date === date); return `<article class="${attendance ? '' : 'empty'}"><span>${weekDayLabels[index]} · ${date.slice(5)}</span><strong>${attendance ? `${attendance.actual} 人` : '未上传'}</strong><small>${attendance ? `计划 ${attendance.planned} 人 · ${escapeHtml(attendance.officer)}` : '等待劳资员上传打卡表'}</small></article>`; }).join('')}</div></section>
+    </section>
+    <div class="daily-layout">
+      <div class="daily-main-stack">
+        <section class="carryover-board"><div class="daily-section-heading"><div><strong>昨日未完成计划今日继续完成</strong><small>与今日新计划分开管理；点击任务查看昨日完成量、剩余工作和今日续做情况</small></div><span>${carryovers.length} 项续做</span></div><div>${carryovers.map(item => `<button type="button" class="carryover-item" data-carryover-task="${item.task.id}" data-carryover-date="${yesterday}"><span class="carryover-sequence">续</span><div><strong>${escapeHtml(item.dayPlan.title)}</strong><small>${escapeHtml(item.task.owner)} · ${escapeHtml(item.record.team)}</small><p>${escapeHtml(item.record.note || '未填写未完成原因')}</p></div><span class="carryover-percent"><small>昨日完成</small><b>${item.record.progress}%</b></span><i><em style="width:${Math.min(100,Number(item.record.progress || 0))}%"></em></i><em>查看续做详情 →</em></button>`).join('') || '<div class="resource-empty">昨日计划已全部完成，没有顺延事项。</div>'}</div></section>
+        <section class="daily-task-board"><div class="daily-section-heading"><div><strong>${currentLabel}计划跟踪</strong><small>同步核对人员、技术变更、材料条件和资料门禁，风险项优先处理</small></div><span>${completed} / ${taskContexts.length} 完成 · ${completionRate}%</span></div><div class="daily-task-columns"><span>日计划任务与进度</span><span>人员</span><span>技术</span><span>材料</span><span>资料</span><span>操作</span></div>${taskContexts.map(renderDailyTaskRow).join('') || '<div class="resource-empty">该日期尚未编制日进度计划，请先在“进度计划”中新增日计划。</div>'}</section>
+      </div>
+      <aside class="tomorrow-coordination"><div class="daily-section-heading"><div><strong>需协调事项跟踪</strong><small>显示提出人、责任人及当前跟进状态，完成后保留闭环记录</small></div><button type="button" data-new-coordination>＋ 提问题</button></div><div class="coordination-list">${coordinationItems.map(item => { const task = tasks.find(task => Number(task.id) === Number(item.taskId)); const status = item.status || 'pending'; const statusLabel = status === 'resolved' ? '已完成' : status === 'following' ? '正在跟进' : '待跟进'; return `<article class="${status}"><div><em>${escapeHtml(item.category)}</em><span class="coordination-status ${status}">${statusLabel}</span></div><strong>${escapeHtml(item.content)}</strong><small>关联：${escapeHtml(task?.title || '施工任务')}</small><div class="coordination-people"><span>提出：${escapeHtml(item.requester)}</span><b>责任：${escapeHtml(item.owner)}</b></div><p>最晚 ${formatIntakeTime(item.due)}${item.feedback ? ` · ${escapeHtml(item.feedback)}` : ''}</p>${status === 'resolved' ? '<button type="button" disabled>✓ 已完成</button>' : status === 'following' ? `<button type="button" data-resolve-coordination="${item.id}">标记完成</button>` : `<button type="button" data-follow-coordination="${item.id}">开始跟进</button>`}</article>`; }).join('') || '<div class="resource-empty">当前没有需协调事项</div>'}</div></aside>
+    </div>
+    <section class="daily-support-grid">
+      <article class="daily-support-card material"><div class="daily-support-heading"><div><span>材料风险项</span><strong>仅显示未到齐、审批未完成或临近使用的材料设备</strong></div><button type="button" data-jump-materials>进入材料设备 →</button></div><div class="daily-support-stats"><span><b>${materialRisks.length}</b> 项风险</span><span>已完成项目不在此处显示</span></div><div class="daily-material-list">${materialRisks.map(({plan,progress}) => `<div><strong>${escapeHtml(plan.name)}</strong><span>${escapeHtml(plan.location)} · 要求 ${plan.due}</span><em class="${progress.days <= 2 ? 'blocked' : 'warning'}">${escapeHtml(formatResourceQuantity(progress.arrived, progress.planned.unit))} / ${escapeHtml(plan.quantity)}</em></div>`).join('') || '<div class="resource-empty">暂无材料风险项</div>'}</div></article>
+      <article class="daily-support-card documents"><div class="daily-support-heading"><div><span>资料风险项</span><strong>仅显示尚未闭环且可能影响工序的资料</strong></div><button type="button" data-jump-documents>进入资料闭环 →</button></div><ul class="daily-document-risk-list">${documentRisks.map(item => `<li><i class="${/(复试|报告|隐蔽)/.test(item.name) ? 'blocked' : 'warning'}"></i><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.group)} · ${escapeHtml(item.owner)}</small></span><b>${item.status === 'testing' ? '检测中' : '待完善'}</b></li>`).join('') || '<li class="resource-empty">暂无资料风险项</li>'}</ul></article>
+      <article class="daily-support-card issues"><div class="daily-support-heading"><div><span>过程问题</span><strong>质量、安全问题跟着任务走</strong></div><button type="button" data-jump-quality>查看问题闭环 →</button></div><div class="daily-issue-totals"><div><strong>${openQuality}</strong><span>质量问题待整改</span></div><div><strong>${openSafety}</strong><span>安全问题待闭环</span></div></div><p>问题记录关联施工任务、责任班组、整改前后照片和复验结论。</p></article>
+    </section>`;
+}
+
+function openCarryoverDetail(taskId, date) {
+  const task = tasks.find(item => Number(item.id) === Number(taskId));
+  const yesterdayRecord = dailyExecution.find(item => Number(item.taskId) === Number(taskId) && item.date === date);
+  if (!task || !yesterdayRecord) { showToast('没有找到该项昨日执行记录'); return; }
+  const todayContext = getDailyTaskContexts(dailyDateKey).find(item => Number(item.task.id) === Number(taskId));
+  const todayRecord = todayContext?.record;
+  const documents = documentConditionMeta(yesterdayRecord);
+  $('#carryoverDetailDate').textContent = `${date} · 昨日未完成计划`;
+  $('#carryoverDetailTitle').textContent = task.title;
+  $('#carryoverDetailBody').innerHTML = `<section class="carryover-detail-summary"><div><span>昨日完成百分比</span><strong>${yesterdayRecord.progress}%</strong><i><em style="width:${Math.min(100,Number(yesterdayRecord.progress || 0))}%"></em></i></div><div><span>今日续做情况</span><strong>${todayRecord ? `${todayRecord.progress}%` : '未列入今日计划'}</strong><small>${todayRecord ? escapeHtml(todayRecord.actualQuantity || '待反馈') : '需要先纳入今日计划后再反馈'}</small></div></section><section class="carryover-detail-grid"><div><span>责任人与班组</span><strong>${escapeHtml(task.owner)} · ${escapeHtml(yesterdayRecord.team)}</strong></div><div><span>昨日完成量</span><strong>${escapeHtml(yesterdayRecord.actualQuantity || '未填写')}</strong></div><div><span>剩余工作</span><strong>${escapeHtml(yesterdayRecord.note || '未填写未完成原因')}</strong></div><div class="${documents.className}"><span>资料条件</span><strong>${escapeHtml(documents.label)} · ${escapeHtml(yesterdayRecord.documentText || '未核对')}</strong></div></section>`;
+  const continueButton = $('#continueCarryoverButton');
+  continueButton.disabled = !todayContext;
+  continueButton.textContent = todayContext ? '记录今日续做' : '尚未列入今日计划';
+  continueButton.onclick = () => { if (!todayContext) return; $('#carryoverDetailDialog').close(); openDailyFeedbackDialog(taskId); };
+  $('#carryoverDetailDialog').showModal();
+}
+
+function openDailyFeedbackDialog(taskId = null) {
+  activeExecutionDate = dailyDateKey;
+  const dailyTasks = getDailyTaskContexts(dailyDateKey).map(item => item.task).filter(item => !item.virtual);
+  const selectedTask = dailyTasks.find(item => Number(item.id) === Number(taskId)) || dailyTasks.find(item => item.status !== 'done') || dailyTasks[0];
+  if (!selectedTask) { showToast('今天还没有日进度计划任务，请先编制日计划'); return; }
+  const select = $('#dailyFeedbackTaskSelect');
+  select.innerHTML = dailyTasks.map(item => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join('');
+  select.value = String(selectedTask.id);
+  loadDailyFeedbackTask(selectedTask.id);
+  $('#dailyFeedbackDialog').showModal();
+}
+
+function loadDailyFeedbackTask(taskId) {
+  const task = tasks.find(item => Number(item.id) === Number(taskId));
+  if (!task) return;
+  const dayPlan = plans.find(plan => plan.level === 'day' && Number(plan.taskId) === Number(task.id) && plan.start === dailyDateKey);
+  const record = getDailyExecutionRecord(task.id, dailyDateKey, dayPlan);
+  const form = $('#dailyFeedbackForm');
+  form.elements.taskId.value = task.id; form.elements.taskSelect.value = String(task.id);
+  form.elements.team.value = record.team || ''; form.elements.status.value = task.status === 'done' ? 'done' : Number(record.progress) ? 'doing' : 'todo';
+  form.elements.plannedWorkers.value = record.plannedWorkers || 0; form.elements.actualWorkers.value = record.actualWorkers || 0; form.elements.progress.value = record.progress || 0; form.elements.actualQuantity.value = record.actualQuantity || '';
+  form.elements.materialPercent.value = record.materialPercent || 0; form.elements.materialText.value = record.materialText || ''; form.elements.documentDone.value = record.documentDone || 0; form.elements.documentTotal.value = record.documentTotal || 1; form.elements.documentText.value = record.documentText || ''; form.elements.note.value = record.note || '';
+  updateDailyDocumentCondition();
+}
+
+function updateDailyDocumentCondition() {
+  const form = $('#dailyFeedbackForm');
+  const record = { documentDone: Number(form.elements.documentDone.value || 0), documentTotal: Number(form.elements.documentTotal.value || 1), documentText: form.elements.documentText.value || '' };
+  const meta = documentConditionMeta(record);
+  const field = $('#dailyDocumentGateField');
+  field.classList.remove('ready','warning','blocked');
+  field.classList.add(meta.className);
+  $('#dailyDocumentConditionState').textContent = `${meta.label} · ${meta.hint}`;
+}
+
+function openCoordinationDialog(taskId = null) {
+  const form = $('#coordinationForm'); form.reset();
+  const dailyTasks = getDailyTaskContexts(dailyDateKey).map(item => item.task).filter(item => !item.virtual);
+  $('#coordinationTaskSelect').innerHTML = dailyTasks.map(item => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join('');
+  if (taskId) form.elements.taskId.value = String(taskId);
+  const task = tasks.find(item => Number(item.id) === Number(form.elements.taskId.value)) || tasks[0];
+  form.elements.requester.value = getDailyExecutionRecord(task.id, dailyDateKey).team || currentOperatorLabel();
+  form.elements.owner.value = matchPersonByRole('生产经理'); form.elements.due.value = defaultDueValue();
+  $('#coordinationDialog').showModal();
+}
+
+function openTechnicalNotice(taskId) {
+  const record = getDailyExecutionRecord(taskId); const notice = record.technicalNotice;
+  if (!notice) return;
+  const task = tasks.find(item => Number(item.id) === Number(taskId));
+  $('#technicalNoticeTaskId').value = taskId;
+  $('#technicalNoticeTitle').textContent = `${notice.type} · ${notice.code}`;
+  const sourceDocument = technicalDocuments.find(item => item.code === notice.code || Number(item.id) === Number(notice.documentId));
+  $('#technicalNoticeBody').innerHTML = `<div class="technical-notice-risk"><b>!</b><span>技术风险提示</span><strong>未完成交底确认前，请勿按原做法继续施工</strong></div><div class="technical-notice-mark"><span>${escapeHtml(notice.type)}</span><strong>${escapeHtml(notice.code)}</strong></div><h3>${escapeHtml(notice.title)}</h3><p>${escapeHtml(sourceDocument?.content || notice.detail)}</p><dl><div><dt>关联任务</dt><dd>${escapeHtml(task?.title || '')}</dd></div><div><dt>发布人</dt><dd>${escapeHtml(notice.issuedBy)}</dd></div><div><dt>发布时间</dt><dd>${formatIntakeTime(notice.issuedAt)}</dd></div><div><dt>需要确认</dt><dd>${notice.requiredRoles.map(escapeHtml).join('、')}</dd></div></dl>${sourceDocument ? `<section class="notice-source-document"><div><strong>上传的${escapeHtml(technicalTypeLabels[sourceDocument.type] || '技术文件')}</strong><p>${escapeHtml(sourceDocument.scope)} · ${(sourceDocument.files || []).length} 个附件</p></div>${(sourceDocument.files || []).map((file,index) => `<button type="button" data-notice-source-file="${index}">${escapeHtml(file.name)} <span>查看原文件 →</span></button>`).join('')}<button type="button" data-open-technical-document="${sourceDocument.id}">查看技术文件台账详情</button></section>` : ''}<section><strong>确认记录</strong><p>${notice.acknowledgedBy.length ? notice.acknowledgedBy.map(escapeHtml).join('、') : '尚无人确认'}</p></section>`;
+  $$('[data-notice-source-file]', $('#technicalNoticeBody')).forEach(button => button.addEventListener('click', () => previewStoredAttachment((sourceDocument.files || [])[Number(button.dataset.noticeSourceFile)])));
+  $('[data-open-technical-document]', $('#technicalNoticeBody'))?.addEventListener('click', () => { $('#technicalNoticeDialog').close(); navigate('technical'); setTimeout(() => openTechnicalDocumentDetail(sourceDocument.id), 0); });
+  const operator = currentOperatorLabel();
+  $('#acknowledgeTechnicalNotice').disabled = notice.acknowledgedBy.includes(operator);
+  $('#acknowledgeTechnicalNotice').textContent = notice.acknowledgedBy.includes(operator) ? '当前账号已确认' : '已阅读并确认';
+  $('#technicalNoticeDialog').showModal();
+}
+
+function openIntakeDialog() {
+  const form = $('#intakeForm');
+  form.reset();
+  form.elements.collector.value = currentOperatorLabel();
+  const localNow = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
+  form.elements.collectedAt.value = localNow.toISOString().slice(0, 16);
+  $('#intakeFileState').textContent = '可上传 PDF、Word、Excel、CSV、文字或现场照片，最多 8 个';
+  $('#intakeDialog').showModal();
+}
+
+function renderIntakeReviewCandidates(record) {
+  $('#intakeReviewCandidates').innerHTML = (record.candidates || []).map((candidate, index) => `<label class="intake-candidate-row"><input type="checkbox" data-intake-candidate-check="${index}" ${candidate.selected !== false ? 'checked' : ''}><span>${String(index + 1).padStart(2,'0')}</span><input data-intake-candidate-title="${index}" value="${escapeHtml(candidate.title)}" aria-label="候选项 ${index + 1}"></label>`).join('') || '<div class="resource-empty">未提取到候选内容，可修改采集主题后直接分发</div>';
+}
+
+function openIntakeReview(record) {
+  if (!record) return;
+  editingIntakeId = record.id;
+  const form = $('#intakeReviewForm');
+  form.reset();
+  form.elements.recordId.value = record.id;
+  form.elements.title.value = record.title;
+  form.elements.target.value = record.target || 'task';
+  form.elements.zone.value = record.zone || '';
+  form.elements.reviewer.value = record.reviewer || currentOperatorLabel();
+  form.elements.reviewNote.value = record.reviewNote || '';
+  $('#intakeReviewTitle').textContent = record.status === 'review' ? '校核识别结果并分发' : '查看信息来源与流转结果';
+  $('#intakeSourceAudit').innerHTML = `<div><span>原始来源</span><strong>${intakeSourceLabels[record.source] || '其他来源'}</strong><small>${escapeHtml(record.recognitionMode || '人工录入')}</small></div><div><span>采集信息</span><strong>${escapeHtml(record.collector)}</strong><small>${formatIntakeTime(record.collectedAt)} · ${escapeHtml(record.zone)}</small></div><div class="intake-audit-files"><span>原始附件</span>${renderStoredFileList(record.attachments || [], '无附件，保留文字原文')}</div>${record.businessRefs?.length ? `<div><span>业务去向</span><strong>${record.businessRefs.length} 条记录</strong><small>${record.businessRefs.map(item => `${intakeTargetLabels[item.kind] || item.kind} #${item.id}`).join(' · ')}</small></div>` : ''}`;
+  $$('[data-stored-file-index]', $('#intakeSourceAudit')).forEach(button => button.addEventListener('click', () => previewStoredAttachment((record.attachments || [])[Number(button.dataset.storedFileIndex)])));
+  renderIntakeReviewCandidates(record);
+  const distributed = record.status !== 'review';
+  form.querySelector('[value="distribute"]').disabled = distributed;
+  form.querySelector('[value="save"]').disabled = distributed;
+  form.querySelector('[value="archive"]').textContent = record.status === 'archived' ? '已归档' : '仅归档';
+  form.querySelector('[value="archive"]').disabled = record.status === 'archived';
+  $('#intakeReviewDialog').showModal();
+}
+
+function distributeIntakeRecord(record, candidates) {
+  const refs = [];
+  const now = Date.now();
+  const titles = candidates.length ? candidates : [record.title];
+  if (record.target === 'task') {
+    titles.forEach((title, index) => {
+      const match = matchResponsible(title);
+      const item = { id: now + index, title, zone: record.zone, owner: match.owner, creator: record.reviewer, taskType: '施工任务', time: '17:00', status: 'todo', priority: 'normal', criteria: `来源：信息采集中心 #${record.id}` };
+      tasks.unshift(item); refs.push({ kind: 'task', id: item.id, title });
+    });
+    persistTasks();
+  } else if (record.target === 'plan') {
+    const start = new Date().toISOString().slice(0,10);
+    const end = new Date(Date.now() + 7 * 86400000).toISOString().slice(0,10);
+    titles.forEach((title, index) => { const item = { id: now + index, level: 'week', title, start, end, ownerRole: '生产经理', source: `信息采集中心 #${record.id}` }; plans.push(item); refs.push({ kind: 'plan', id: item.id, title }); });
+    persistPlans();
+  } else if (record.target === 'material') {
+    const due = new Date(Date.now() + 7 * 86400000).toISOString().slice(0,10);
+    titles.forEach((title, index) => {
+      const requester = record.reviewer || currentOperatorLabel();
+      const item = { id: now + index, type: 'material', name: title, quantity: '待核实', due, location: record.zone, ownerRole: '材料员', requester, purchaser: matchPersonByRole('采购员'), contractBrandRequired: false, contractBrand: '', approvalAttachments: record.attachments || [], approvalWorkflow: [{ role: '提报人', owner: requester, status: 'pending' }, { role: '生产经理', owner: matchPersonByRole('生产经理'), status: 'pending' }, { role: '技术负责人', owner: matchPersonByRole('技术负责人'), status: 'pending' }, { role: '库管', owner: matchPersonByRole('库管'), status: 'pending' }, { role: '项目经理', owner: matchPersonByRole('项目经理'), status: 'pending' }], createdAt: new Date().toISOString(), sourceIntakeId: record.id };
+      resourcePlans.unshift(item); syncMaterialApprovalNotifications(item); refs.push({ kind: 'material', id: item.id, title });
+    });
+    persistResources(); persistFollowups();
+  } else if (record.target === 'document') {
+    titles.forEach((title, index) => { const item = { id: now + index, category: '资料催办', title, requester: record.reviewer, owner: matchPersonByRole('资料员'), zone: record.zone, due: defaultDueValue(), urgency: 'normal', relatedTask: `信息采集中心 #${record.id}`, note: record.reviewNote || '请核对原始来源并补齐归档资料。', status: 'pending', reminders: 1, createdAt: new Date().toISOString() }; followups.unshift(item); refs.push({ kind: 'document', id: item.id, title }); });
+    persistFollowups();
+  } else if (record.target === 'quality') {
+    const date = new Date().toISOString().slice(0,10);
+    const due = new Date(Date.now() + 86400000).toISOString().slice(0,10);
+    titles.forEach((title, index) => { const match = matchResponsible(title); const item = { id: now + index, type: 'quality', title, location: record.zone, owner: match.owner, date, due, status: 'pending', critical: false, note: `来源：信息采集中心 #${record.id}${record.reviewNote ? `；${record.reviewNote}` : ''}`, recordAttachments: record.attachments || [], beforeAttachments: [], afterAttachments: [] }; qualityChecks.unshift(item); refs.push({ kind: 'quality', id: item.id, title }); });
+    persistQualityChecks();
+  } else {
+    titles.forEach((title, index) => { const item = { id: now + index, type: '信息采集', content: `${title}（${record.zone}）`, createdAt: new Date().toISOString(), photos: (record.attachments || []).filter(file => String(file.type || '').startsWith('image/')), sourceIntakeId: record.id }; siteRecords.unshift(item); refs.push({ kind: 'record', id: item.id, title }); });
+    if (siteRecords.length > 300) siteRecords.length = 300;
+    persistSiteRecords();
+  }
+  return refs;
+}
+
 function renderSubview(id) {
   const config = subviews[id];
   const container = document.getElementById(id);
   let body = '';
-  if (config.content === 'schedule') {
+  if (config.content === 'intake') {
+    body = renderIntakeBody();
+  } else if (config.content === 'technical') {
+    body = renderTechnicalDocumentsBody();
+  } else if (config.content === 'cost') {
+    body = renderCostDocumentsBody();
+  } else if (config.content === 'schedule') {
     body = renderScheduleBody();
   } else if (config.content === 'resources') {
     body = renderResourcesBody();
@@ -1564,7 +2159,10 @@ function renderSubview(id) {
   }
   container.innerHTML = `<div class="subview-shell"><div class="subview-heading"><div><p class="eyebrow">云河智造中心一期</p><h1 id="${id}Title">${config.title}</h1><p>${config.desc}</p></div><button class="primary-button subview-action">＋ ${config.action}</button></div>${body}</div>`;
   $('.subview-action', container).addEventListener('click', () => {
-    if (id === 'schedule') openPlanDialog();
+    if (id === 'intake') openDailyFeedbackDialog();
+    else if (id === 'technical') openTechnicalDocumentDialog();
+    else if (id === 'cost') openCostDocumentDialog();
+    else if (id === 'schedule') openPlanDialog();
     else if (id === 'tasks') openTaskDialog();
     else if (id === 'followups') openFollowupDialog();
     else if (id === 'materials') openResourceEntryDialog('material');
@@ -1574,6 +2172,28 @@ function renderSubview(id) {
     else showToast(`${config.action}功能已进入待办，可在下一版接入业务数据`);
   });
   $$('[data-plan-level]', container).forEach(button => button.addEventListener('click', () => { activePlanLevel = button.dataset.planLevel; renderSubview('schedule'); }));
+  $$('[data-technical-filter]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalFilter = button.dataset.technicalFilter; activeTechnicalBuilding = 'all'; renderSubview('technical'); }));
+  $$('[data-technical-overview-filter]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalFilter = button.dataset.technicalOverviewFilter; activeTechnicalBuilding = 'all'; renderSubview('technical'); }));
+  $$('[data-technical-building]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalBuilding = button.dataset.technicalBuilding; renderSubview('technical'); }));
+  $$('[data-technical-document]', container).forEach(button => button.addEventListener('click', () => openTechnicalDocumentDetail(button.dataset.technicalDocument)));
+  $$('[data-cost-filter]', container).forEach(button => button.addEventListener('click', () => { activeCostFilter = button.dataset.costFilter; renderSubview('cost'); }));
+  $$('[data-cost-overview-filter]', container).forEach(button => button.addEventListener('click', () => { activeCostFilter = button.dataset.costOverviewFilter; renderSubview('cost'); }));
+  $$('[data-cost-document]', container).forEach(button => button.addEventListener('click', () => openCostDocumentDetail(button.dataset.costDocument)));
+  $('#dailyExecutionDate', container)?.addEventListener('change', event => { activeExecutionDate = event.target.value || dailyDateKey; renderSubview('intake'); });
+  $$('[data-daily-date-step]', container).forEach(button => button.addEventListener('click', () => { activeExecutionDate = shiftDateKey(activeExecutionDate, Number(button.dataset.dailyDateStep)); renderSubview('intake'); }));
+  $('[data-daily-today]', container)?.addEventListener('click', () => { activeExecutionDate = dailyDateKey; renderSubview('intake'); });
+  $$('[data-intake-filter]', container).forEach(button => button.addEventListener('click', () => { activeIntakeFilter = button.dataset.intakeFilter; renderSubview('intake'); }));
+  $$('[data-review-intake]', container).forEach(button => button.addEventListener('click', () => openIntakeReview(intakeRecords.find(item => Number(item.id) === Number(button.dataset.reviewIntake)))));
+  $$('[data-daily-feedback]', container).forEach(button => button.addEventListener('click', () => openDailyFeedbackDialog(button.dataset.dailyFeedback)));
+  $$('[data-carryover-task]', container).forEach(button => button.addEventListener('click', () => openCarryoverDetail(button.dataset.carryoverTask, button.dataset.carryoverDate)));
+  $$('[data-technical-task]', container).forEach(button => button.addEventListener('click', () => openTechnicalNotice(button.dataset.technicalTask)));
+  $('[data-new-coordination]', container)?.addEventListener('click', () => openCoordinationDialog());
+  $$('[data-follow-coordination]', container).forEach(button => button.addEventListener('click', () => { dailyCoordination = dailyCoordination.map(item => Number(item.id) === Number(button.dataset.followCoordination) ? { ...item, status: 'following', followedAt: new Date().toISOString(), followedBy: currentOperatorLabel(), feedback: `由${currentOperatorLabel()}开始跟进` } : item); persistDailyCoordination(); renderSubview('intake'); showToast('协调事项已进入跟进状态'); }));
+  $$('[data-resolve-coordination]', container).forEach(button => button.addEventListener('click', () => { dailyCoordination = dailyCoordination.map(item => Number(item.id) === Number(button.dataset.resolveCoordination) ? { ...item, status: 'resolved', resolvedAt: new Date().toISOString(), resolvedBy: currentOperatorLabel(), feedback: `已由${currentOperatorLabel()}确认完成` } : item); persistDailyCoordination(); renderSubview('intake'); showToast('协调问题已完成并保留闭环记录'); }));
+  $('[data-jump-materials]', container)?.addEventListener('click', () => navigate('materials'));
+  $('[data-jump-documents]', container)?.addEventListener('click', () => navigate('documents'));
+  $('[data-jump-quality]', container)?.addEventListener('click', () => navigate('quality'));
+  $('[data-open-collection]', container)?.addEventListener('click', openIntakeDialog);
   $$('[data-edit-plan]', container).forEach(button => button.addEventListener('click', () => openPlanDialog(plans.find(plan => plan.id === Number(button.dataset.editPlan)))));
   $$('[data-edit-task-row]', container).forEach(button => button.addEventListener('click', () => openTaskDialog(tasks.find(task => task.id === Number(button.dataset.editTaskRow)))));
   $$('[data-resource-tab]', container).forEach(button => button.addEventListener('click', () => { activeResourceTab = button.dataset.resourceTab; renderSubview('materials'); }));
@@ -1607,11 +2227,13 @@ function renderSubview(id) {
 }
 
 function navigate(viewId) {
+  if (viewId === 'dashboard') viewId = 'intake';
+  if (viewId === 'cost' && !hasCostAccess()) { openCostAccessDenied(); return; }
   $$('.view').forEach(view => view.classList.toggle('active', view.id === viewId));
   $$('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === viewId));
-  $('#globalBackButton').classList.toggle('visible', viewId !== 'dashboard');
-  $('#addTaskButton').classList.toggle('view-hidden', viewId !== 'dashboard');
-  if (viewId !== 'dashboard') renderSubview(viewId);
+  $('#globalBackButton').classList.toggle('visible', viewId !== 'intake');
+  $('#addTaskButton').classList.toggle('view-hidden', viewId !== 'intake');
+  renderSubview(viewId);
   closeSidebar();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -1766,7 +2388,7 @@ function createMorningBrief() {
 }
 
 function exportData() {
-  const data = { project: '云河智造中心一期', exportedAt: new Date().toISOString(), stages, tasks, issues, documentState, concealedAcceptances, resourceEntries, resourcePlans, qualityChecks, safetyInspections, organization, attendanceRecords, siteRecords };
+  const data = { project: '云河智造中心一期', exportedAt: new Date().toISOString(), stages, tasks, issues, intakeRecords, technicalDocuments, costDocuments: hasCostAccess() ? costDocuments : [], dailyExecution, dailyCoordination, documentState, concealedAcceptances, resourceEntries, resourcePlans, qualityChecks, safetyInspections, organization, attendanceRecords, siteRecords };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `筑序-项目数据-${new Date().toISOString().slice(0,10)}.json`; link.click(); URL.revokeObjectURL(url); showToast('项目数据已导出');
 }
@@ -1774,16 +2396,19 @@ function exportData() {
 function initializeApp() {
   const formatter = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' });
   $('#todayLabel').textContent = `${formatter.format(new Date())} · 第 218 个施工日`;
+  if (authenticatedUserId && !hasCostAccess()) costDocuments = [];
   renderStages(); renderIssues(); renderTasks(); renderDocumentSummary(); renderOrganization();
+  persistIntakeRecords(); persistTechnicalDocuments(); persistCostDocuments(); persistDailyExecution(); persistDailyCoordination(); updateDailyBadge();
   resourcePlans.forEach(syncMaterialApprovalNotifications);
   persistResources(); persistFollowups();
   setAuthenticationView(Boolean(authenticatedUserId));
+  navigate('intake');
   if (window.ZhuxuServer?.active) {
     $('.login-version').textContent = '筑序 v1.0 · 项目局域网多人版';
     $('.sync-state span').textContent = authenticatedUserId ? '局域网数据已连接' : '等待登录服务器';
     if (authenticatedUserId) {
       persistTasks(); persistDocumentState(); persistOrganization(); persistPlans(); persistConcealedAcceptances();
-      persistQualityChecks(); persistAttendance(); persistSafetyInspections();
+      persistQualityChecks(); persistAttendance(); persistSafetyInspections(); persistSiteRecords(); persistIntakeRecords(); persistTechnicalDocuments(); persistCostDocuments(); persistDailyExecution(); persistDailyCoordination();
     }
   } else {
     $('.login-version').textContent = '筑序 v1.0 · 本机离线演示版';
@@ -1821,11 +2446,11 @@ function initializeApp() {
   $$('[data-jump]').forEach(item => item.addEventListener('click', () => navigate(item.dataset.jump)));
   $$('.task-filters button').forEach(button => button.addEventListener('click', () => { activeFilter = button.dataset.filter; $$('.task-filters button').forEach(b => b.classList.toggle('active', b === button)); renderTasks(); }));
   $('#menuButton').addEventListener('click', openSidebar); $('#sidebarScrim').addEventListener('click', closeSidebar);
-  $('#globalBackButton').addEventListener('click', () => navigate('dashboard'));
+  $('#globalBackButton').addEventListener('click', () => navigate('intake'));
   $('#documentStrip').addEventListener('click', () => navigate('documents'));
   $('#organizationButton').addEventListener('click', () => { renderOrganization(); $('#organizationDialog').showModal(); });
   $('#accountSwitcherButton').addEventListener('click', logoutCurrentUser);
-  $('#addTaskButton').addEventListener('click', () => openTaskDialog());
+  $('#addTaskButton').addEventListener('click', () => openDailyFeedbackDialog());
   $('#logButton').addEventListener('click', openLogDialog);
   $('#photoInput').addEventListener('change', handlePhotoSelection);
   $('#morningBriefButton').addEventListener('click', createMorningBrief);
@@ -1844,6 +2469,8 @@ function initializeApp() {
 
   $$('[data-task-intake]').forEach(button => button.addEventListener('click', () => setTaskIntakeMode(button.dataset.taskIntake)));
   $$('[data-plan-mode]').forEach(button => button.addEventListener('click', () => setPlanMode(button.dataset.planMode)));
+  $('#planForm select[name="level"]').addEventListener('change', () => updatePlanParentField());
+  $('#planForm input[name="start"]').addEventListener('change', () => updatePlanParentField($('#planForm').elements.parentId.value));
   $('#taskImportInput').addEventListener('change', event => recognizeTaskFiles([...event.target.files]));
   $('#planImportInput').addEventListener('change', event => { if (event.target.files[0]) recognizePlanFile(event.target.files[0]); });
   $('#resourcePlanForm select[name="type"]').addEventListener('change', event => { populateResourcePlanRoles(event.target.value); updateResourcePlanMaterialFields(); });
@@ -1887,6 +2514,140 @@ function initializeApp() {
     voiceRecognition.onerror = () => showToast('语音识别未启动，请检查麦克风权限');
     voiceRecognition.onend = () => { voiceRecognition = null; $('#voiceTaskButton').classList.remove('listening'); $('#voiceTaskButton strong').textContent = '开始语音布置任务'; if ($('#voiceTranscript').value.trim()) $('#parseVoiceButton').click(); };
     voiceRecognition.start();
+  });
+
+  $('#dailyFeedbackTaskSelect').addEventListener('change', event => loadDailyFeedbackTask(event.target.value));
+  ['documentDone','documentTotal','documentText'].forEach(name => $('#dailyFeedbackForm').elements[name].addEventListener('input', updateDailyDocumentCondition));
+  $('#technicalDocumentForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget; const data = new FormData(form); const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true; submit.textContent = '保存中…';
+    try {
+      const files = await prepareResourceAttachments([...form.elements.files.files]);
+      technicalDocuments.unshift({ id: Date.now(), type: data.get('type'), code: data.get('code'), title: data.get('title'), building: data.get('building'), issuedBy: data.get('issuedBy'), issuedAt: data.get('issuedAt'), scope: data.get('scope'), content: data.get('content'), files, status: 'valid', createdAt: new Date().toISOString(), createdBy: currentOperatorLabel() });
+      persistTechnicalDocuments(); form.reset(); $('#technicalDocumentDialog').close();
+      if ($('#technical').classList.contains('active')) renderSubview('technical');
+      showToast('技术文件已上传并向项目成员共享');
+    } finally { submit.disabled = false; submit.textContent = '保存技术文件'; }
+  });
+  $('#costDocumentForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget; const data = new FormData(form); const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true; submit.textContent = '保存中…';
+    try {
+      const files = await prepareResourceAttachments([...form.elements.files.files]);
+      costDocuments.unshift({ id: Date.now(), type: data.get('type'), code: data.get('code'), title: data.get('title'), party: data.get('party'), amount: data.get('amount') || '待核定', zone: data.get('zone'), issuedAt: data.get('issuedAt'), content: data.get('content'), files, status: data.get('type') === 'contract' ? 'valid' : 'pending', createdAt: new Date().toISOString(), createdBy: currentOperatorLabel() });
+      persistCostDocuments(); form.reset(); $('#costDocumentDialog').close();
+      if ($('#cost').classList.contains('active')) renderSubview('cost');
+      showToast('成控文件已保存并向项目成员共享');
+    } finally { submit.disabled = false; submit.textContent = '保存成控文件'; }
+  });
+  $('#dailyFeedbackForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget; const data = new FormData(form); const taskId = Number(data.get('taskId'));
+    const dayPlan = plans.find(plan => plan.level === 'day' && Number(plan.taskId) === taskId && plan.start === dailyDateKey);
+    const existing = getDailyExecutionRecord(taskId, dailyDateKey, dayPlan); const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true; submit.textContent = '保存中…';
+    try {
+      const photos = await prepareResourceAttachments([...form.elements.photos.files]);
+      const record = { ...existing, taskId, dayPlanId: dayPlan?.id || existing.dayPlanId, weekPlanId: dayPlan?.parentId || existing.weekPlanId, date: dailyDateKey, team: data.get('team'), plannedWorkers: Number(data.get('plannedWorkers')), actualWorkers: Number(data.get('actualWorkers')), progress: Number(data.get('progress')), actualQuantity: data.get('actualQuantity'), materialPercent: Number(data.get('materialPercent')), materialText: data.get('materialText'), documentDone: Number(data.get('documentDone')), documentTotal: Number(data.get('documentTotal')), documentText: data.get('documentText'), note: data.get('note'), feedbackPhotos: [...(existing.feedbackPhotos || []), ...photos], feedbackAt: new Date().toISOString(), feedbackBy: currentOperatorLabel() };
+      dailyExecution = dailyExecution.map(item => ((record.dayPlanId && Number(item.dayPlanId) === Number(record.dayPlanId)) || (Number(item.taskId) === taskId && item.date === dailyDateKey)) ? record : item);
+      const status = data.get('status') === 'done' || record.progress >= 100 ? 'done' : data.get('status') === 'doing' || record.progress > 0 ? 'doing' : 'todo';
+      tasks = tasks.map(item => Number(item.id) === taskId ? { ...item, status } : item);
+      siteRecords.unshift({ id: Date.now(), type: '施工反馈', content: `${tasks.find(item => Number(item.id) === taskId)?.title || '施工任务'}：${record.actualQuantity}；${record.note}`, createdAt: new Date().toISOString(), photos, sourceTaskId: taskId });
+      persistDailyExecution(); persistTasks(); persistSiteRecords();
+      form.reset(); $('#dailyFeedbackDialog').close();
+      if ($('#intake').classList.contains('active')) renderSubview('intake');
+      showToast('施工进度、班组人数、材料和资料状态已更新');
+    } finally { submit.disabled = false; submit.textContent = '保存施工反馈'; }
+  });
+  $('#coordinationTaskSelect').addEventListener('change', event => { const task = tasks.find(item => Number(item.id) === Number(event.target.value)); if (task) $('#coordinationForm').elements.requester.value = getDailyExecutionRecord(task.id, dailyDateKey).team || currentOperatorLabel(); });
+  $('#coordinationForm').addEventListener('submit', event => {
+    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form);
+    dailyCoordination.unshift({ id: Date.now(), taskId: Number(data.get('taskId')), category: data.get('category'), content: data.get('content'), requester: data.get('requester'), owner: data.get('owner'), due: data.get('due'), status: 'pending', createdAt: new Date().toISOString() });
+    persistDailyCoordination(); form.reset(); $('#coordinationDialog').close(); if ($('#intake').classList.contains('active')) renderSubview('intake'); showToast('明日协调问题已提交并进入跟踪');
+  });
+  $('#acknowledgeTechnicalNotice').addEventListener('click', () => {
+    const taskId = Number($('#technicalNoticeTaskId').value); const record = getDailyExecutionRecord(taskId, dailyDateKey); const operator = currentOperatorLabel();
+    if (!record.technicalNotice.acknowledgedBy.includes(operator)) record.technicalNotice.acknowledgedBy.push(operator);
+    record.technicalNotice.lastAcknowledgedAt = new Date().toISOString(); persistDailyExecution(); $('#technicalNoticeDialog').close(); if ($('#intake').classList.contains('active')) renderSubview('intake'); showToast('技术交底已确认，系统已记录确认人和时间');
+  });
+
+  $('#intakeForm input[name="sourceFiles"]').addEventListener('change', event => {
+    const files = [...event.target.files];
+    $('#intakeFileState').textContent = files.length ? `已选择 ${Math.min(files.length, 8)} 个：${files.slice(0, 3).map(file => file.name).join('、')}${files.length > 3 ? '…' : ''}` : '可上传 PDF、Word、Excel、CSV、文字或现场照片，最多 8 个';
+    if (files.length && files.every(file => file.type.startsWith('image/'))) $('#intakeForm').elements.source.value = 'photo';
+  });
+  $('#intakeVoiceButton').addEventListener('click', () => {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) { showToast('当前浏览器不支持语音转写，可直接输入或粘贴文字'); return; }
+    if (voiceRecognition) { voiceRecognition.stop(); return; }
+    const button = $('#intakeVoiceButton');
+    const textArea = $('#intakeForm').elements.rawText;
+    $('#intakeForm').elements.source.value = 'voice';
+    voiceRecognition = new Recognition();
+    voiceRecognition.lang = 'zh-CN'; voiceRecognition.continuous = true; voiceRecognition.interimResults = true;
+    voiceRecognition.onstart = () => { button.classList.add('listening'); $('strong', button).textContent = '正在转写，点击结束'; };
+    voiceRecognition.onresult = event => { textArea.value = [...event.results].map(result => result[0].transcript).join(''); };
+    voiceRecognition.onerror = () => showToast('语音转写未启动，请检查麦克风权限');
+    voiceRecognition.onend = () => { voiceRecognition = null; button.classList.remove('listening'); $('strong', button).textContent = '开始语音转写'; };
+    voiceRecognition.start();
+  });
+
+  $('#intakeForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const submit = form.querySelector('[type="submit"]');
+    const files = [...form.elements.sourceFiles.files].slice(0, 8);
+    submit.disabled = true; submit.textContent = '正在提取并保存…';
+    try {
+      const extractedParts = [];
+      for (const file of files) {
+        try { const text = await extractFileText(file); if (text.trim()) extractedParts.push(text.trim()); } catch (error) { /* 文件仍保留，进入人工校核 */ }
+      }
+      const attachments = await prepareResourceAttachments(files);
+      const rawText = String(data.get('rawText') || '').trim();
+      const extractedText = [rawText, ...extractedParts].filter(Boolean).join('\n');
+      const lines = recognizedLines(extractedText, String(data.get('title')));
+      const record = {
+        id: Date.now(), title: String(data.get('title')).trim(), source: data.get('source'), target: data.get('target'), zone: String(data.get('zone')).trim(), collector: String(data.get('collector')).trim(), collectedAt: data.get('collectedAt'), status: 'review', rawText, candidates: lines.map(title => ({ title, selected: true })), attachments,
+        recognitionMode: extractedParts.length ? '浏览器本地解析 · 待人工校核' : data.get('source') === 'voice' ? '浏览器语音转写 · 待人工校核' : files.length ? '文件名候选 · 待人工校核' : '人工录入 · 待校核', createdAt: new Date().toISOString()
+      };
+      intakeRecords.unshift(record);
+      persistIntakeRecords();
+      form.reset(); $('#intakeDialog').close();
+      if ($('#intake').classList.contains('active')) renderSubview('intake');
+      showToast(`采集记录已保存，生成 ${record.candidates.length} 条待校核内容`);
+      openIntakeReview(record);
+    } catch (error) {
+      showToast('信息采集保存失败，请检查附件后重试');
+    } finally { submit.disabled = false; submit.textContent = '保存并生成待校核项'; }
+  });
+
+  $('#intakeReviewForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const action = event.submitter?.value || 'save';
+    const existing = intakeRecords.find(item => Number(item.id) === Number(form.elements.recordId.value));
+    if (!existing) return;
+    const candidates = $$('[data-intake-candidate-title]', form).map(input => ({ title: input.value.trim(), selected: $(`[data-intake-candidate-check="${input.dataset.intakeCandidateTitle}"]`, form)?.checked !== false })).filter(item => item.title);
+    const updated = { ...existing, title: form.elements.title.value.trim(), target: form.elements.target.value, zone: form.elements.zone.value.trim(), reviewer: form.elements.reviewer.value.trim(), reviewNote: form.elements.reviewNote.value.trim(), candidates, reviewedAt: new Date().toISOString() };
+    if (action === 'distribute') {
+      const selected = candidates.filter(item => item.selected).map(item => item.title);
+      if (!selected.length && candidates.length) { showToast('请至少勾选一条需要分发的候选项'); return; }
+      updated.businessRefs = distributeIntakeRecord(updated, selected);
+      updated.status = 'distributed'; updated.distributedAt = new Date().toISOString(); updated.distributedBy = updated.reviewer;
+    } else if (action === 'archive') {
+      updated.status = 'archived'; updated.archivedAt = new Date().toISOString(); updated.archivedBy = updated.reviewer;
+    } else {
+      updated.status = 'review';
+    }
+    intakeRecords = intakeRecords.map(item => Number(item.id) === Number(updated.id) ? updated : item);
+    persistIntakeRecords();
+    editingIntakeId = null; $('#intakeReviewDialog').close();
+    if ($('#intake').classList.contains('active')) renderSubview('intake');
+    showToast(action === 'distribute' ? `已向${intakeTargetLabels[updated.target]}分发 ${updated.businessRefs.length} 条记录` : action === 'archive' ? '采集记录已归档，来源信息仍可追溯' : '人工校核结果已保存');
   });
 
   $('#documentGateForm').addEventListener('submit', async event => {
@@ -2076,15 +2837,31 @@ function initializeApp() {
   $('#planForm').addEventListener('submit', event => {
     event.preventDefault();
     const form = event.currentTarget; const data = new FormData(form);
-    const base = { level: data.get('level'), ownerRole: data.get('ownerRole'), start: data.get('start'), end: data.get('end') };
+    const level = data.get('level');
+    const start = data.get('start');
+    const explicitParentId = Number(data.get('parentId')) || null;
+    const inferredParent = level === 'day' ? plans.find(plan => plan.level === 'week' && plan.start <= start && plan.end >= start && (!explicitParentId || Number(plan.id) === explicitParentId)) : null;
+    const base = { level, ownerRole: data.get('ownerRole'), start, end: level === 'day' ? start : data.get('end'), parentId: level === 'day' ? (explicitParentId || inferredParent?.id || null) : null };
+    const attachDayTask = plan => {
+      if (plan.level !== 'day') return plan;
+      let task = tasks.find(item => Number(item.id) === Number(plan.taskId)) || tasks.find(item => Number(item.dayPlanId) === Number(plan.id));
+      if (!task) {
+        task = { id: Date.now() + Math.floor(Math.random() * 1000), dayPlanId: plan.id, title: plan.title, zone: '计划指定区域', owner: resolveOrganizationOwner(plan.ownerRole), creator: currentOperatorLabel(), taskType: '施工任务', time: '17:00', status: 'todo', priority: 'normal', criteria: `来源：日进度计划 #${plan.id}` };
+        tasks.unshift(task);
+      } else {
+        Object.assign(task, { dayPlanId: plan.id, title: plan.title, owner: task.owner || resolveOrganizationOwner(plan.ownerRole) });
+      }
+      plan.taskId = task.id;
+      return plan;
+    };
     if (editingPlanId) {
-      plans = plans.map(plan => plan.id === editingPlanId ? { ...plan, ...base, title: data.get('title'), source: '人工更新' } : plan);
+      plans = plans.map(plan => plan.id === editingPlanId ? attachDayTask({ ...plan, ...base, title: data.get('title'), source: '人工更新' }) : plan);
     } else if (planRecognitionCandidates.length) {
-      planRecognitionCandidates.forEach((candidate, index) => plans.push({ id: Date.now() + index, ...base, title: candidate.title, start: candidate.start || base.start, end: candidate.end || base.end, source: '文件识别 · 已校对' }));
+      planRecognitionCandidates.forEach((candidate, index) => plans.push(attachDayTask({ id: Date.now() + index, ...base, title: candidate.title, start: candidate.start || base.start, end: level === 'day' ? (candidate.start || base.start) : (candidate.end || base.end), source: '文件识别 · 已校对' })));
     } else {
-      plans.push({ id: Date.now(), ...base, title: data.get('title'), source: '手工新建' });
+      plans.push(attachDayTask({ id: Date.now(), ...base, title: data.get('title'), source: '手工新建' }));
     }
-    activePlanLevel = data.get('level'); persistPlans(); editingPlanId = null; planRecognitionCandidates = []; form.reset(); $('#planDialog').close();
+    activePlanLevel = level; persistPlans(); persistTasks(); editingPlanId = null; planRecognitionCandidates = []; form.reset(); $('#planDialog').close();
     if ($('#schedule').classList.contains('active')) renderSubview('schedule');
     showToast('计划已更新并写入对应计划层级');
   });

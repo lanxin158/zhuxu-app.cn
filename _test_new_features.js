@@ -60,6 +60,8 @@ async function login(page, userId = 'pm') {
     await page.locator('#accountSwitcherButton').click();
     await page.locator('body.auth-locked').waitFor();
     await login(page, userId);
+    await page.locator('[data-view="materials"]').click();
+    await page.locator('#materials [data-resource-tab="plans"]').click();
     await planRow.click();
   };
   const firstApprovalNotice = await page.evaluate(() => JSON.parse(localStorage.getItem('zhuxu-followups')).find(item => item.title === '审批材料计划：HRB400E Φ22钢筋计划' && item.status === 'pending'));

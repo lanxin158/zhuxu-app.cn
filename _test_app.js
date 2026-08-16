@@ -17,6 +17,15 @@ async function login(page, account = 'chen.pm', password = '001001', remember = 
   await page.locator('body.authenticated').waitFor();
 }
 
+async function openLegacyDashboard(page) {
+  await page.evaluate(() => {
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    const dashboard = document.querySelector('#dashboard');
+    dashboard.hidden = false;
+    dashboard.classList.add('active');
+  });
+}
+
 (async () => {
   const root = __dirname;
   const url = pathToFileURL(path.join(root, 'index.html')).href;
@@ -40,8 +49,10 @@ async function login(page, account = 'chen.pm', password = '001001', remember = 
   if (!(await page.locator('#loginError').textContent()).includes('不正确')) throw new Error('Invalid password was not rejected');
   await login(page);
   if (!(await page.locator('#currentUserCard').getByText('陈海峰').isVisible())) throw new Error('Logged-in user was not bound to organization');
+  if (!(await page.locator('#intake').isVisible()) || await page.locator('[data-view="dashboard"]').count()) throw new Error('Daily execution center is not the only homepage');
 
   if (await page.title() !== '筑序 · 施工效率驾驶舱') throw new Error('Unexpected title');
+  await openLegacyDashboard(page);
   if (await page.locator('#processRail .stage-button').count() !== 7) throw new Error('Stages not rendered');
   if (await page.locator('#taskList .task-item').count() < 6) throw new Error('Tasks not rendered');
   if (await page.locator('#organizationRoles .role-chip').count() < 5) throw new Error('Organization roles not rendered');
@@ -57,7 +68,7 @@ async function login(page, account = 'chen.pm', password = '001001', remember = 
   if (await page.locator('#taskList .task-item').count() !== 2) throw new Error('Task filter failed');
   await page.getByRole('button', { name: '全部', exact: true }).click();
 
-  await page.locator('#addTaskButton').click();
+  await page.evaluate(() => openTaskDialog());
   await page.locator('#taskDialog input[name="title"]').fill('样板层机电综合验收');
   await page.locator('#taskDialog input[name="owner"]').fill('李工');
   await page.locator('#taskDialog input[name="creator"]').fill('赵工 · 安全员');
@@ -68,6 +79,20 @@ async function login(page, account = 'chen.pm', password = '001001', remember = 
 
   await page.locator('[data-view="schedule"]').click();
   if (await page.locator('#schedule [data-plan-level]').count() !== 4) throw new Error('Four plan levels were not rendered');
+  await page.locator('#schedule [data-plan-level="day"]').click();
+  const dayGroupCount = await page.locator('#schedule .daily-plan-group').count();
+  if (dayGroupCount < 2) throw new Error('Daily plans were not grouped by execution date');
+  const sampleDayGroup = page.locator('#schedule .daily-plan-group').nth(1);
+  const sampleDate = await sampleDayGroup.getAttribute('data-plan-date');
+  const [, sampleMonth, sampleDay] = sampleDate.split('-').map(Number);
+  if (!(await sampleDayGroup.getByText(`${sampleMonth}月${sampleDay}日计划`, { exact: false }).isVisible())) throw new Error('Daily plan folder date label is missing');
+  if (!(await sampleDayGroup.evaluate(group => group.open))) await sampleDayGroup.locator('summary').click();
+  const groupedRows = await sampleDayGroup.locator('.day-plan-row').count();
+  const expectedRows = await page.evaluate(date => plans.filter(plan => plan.level === 'day' && plan.start === date).length, sampleDate);
+  if (!groupedRows || groupedRows !== expectedRows) throw new Error('Daily plan tasks were not placed inside their matching date folder');
+  if (!(await sampleDayGroup.locator('.day-plan-row').first().isVisible())) throw new Error('Daily plan folder did not reveal its tasks');
+  await page.screenshot({ path: path.join(root, 'qa-schedule-day-groups.png'), fullPage: true });
+  await page.locator('#schedule [data-plan-level="week"]').click();
   await page.locator('#schedule .subview-action').click();
   await page.locator('#planForm input[name="title"]').fill('测试新增周计划');
   await page.locator('#planForm input[name="start"]').fill('2026-08-10');
@@ -89,7 +114,7 @@ async function login(page, account = 'chen.pm', password = '001001', remember = 
   await page.screenshot({ path: path.join(root, 'qa-schedule.png'), fullPage: true });
 
   await page.locator('[data-view="tasks"]').click();
-  if (await page.locator('#addTaskButton').isVisible()) throw new Error('Global new-task button should only appear on dashboard');
+  if (await page.locator('#addTaskButton').isVisible()) throw new Error('Global feedback button should only appear on daily execution homepage');
   await page.locator('[data-edit-task-row="1"]').click();
   await page.locator('#taskForm input[name="time"]').fill('12:10');
   await page.locator('#taskForm').getByRole('button', { name: '保存修改' }).click();
@@ -213,8 +238,9 @@ async function login(page, account = 'chen.pm', password = '001001', remember = 
   await page.screenshot({ path: path.join(root, 'qa-document-material-detail.png'), fullPage: true });
   await page.locator('#materialAcceptanceDialog').getByRole('button', { name: '关闭' }).first().click();
   await page.locator('#globalBackButton').click();
-  if (!(await page.locator('#dashboard').isVisible())) throw new Error('Back to dashboard failed');
+  if (!(await page.locator('#intake').isVisible())) throw new Error('Back to daily execution homepage failed');
 
+  await openLegacyDashboard(page);
   await page.locator('[data-id="1"] .task-status').click();
   if (!(await page.locator('#documentGateDialog').isVisible())) throw new Error('Steel binding document gate did not open');
   await page.screenshot({ path: path.join(root, 'qa-document-gate.png') });
@@ -254,6 +280,7 @@ async function login(page, account = 'chen.pm', password = '001001', remember = 
   await page.locator('[data-view="followups"]').click();
   if (!(await page.locator('#followups').getByText(followupTitle).first().isVisible())) throw new Error('Follow-up did not persist after reload');
   await page.locator('#globalBackButton').click();
+  await openLegacyDashboard(page);
   await page.locator('[data-id="1"] [data-urge-task]').click();
   if ((await page.locator('#followupForm select[name="category"]').inputValue()) !== '工序催办') throw new Error('Task follow-up was not prefilled');
   await page.locator('#followupDialog').getByRole('button', { name: '关闭' }).click();
@@ -347,7 +374,7 @@ async function login(page, account = 'chen.pm', password = '001001', remember = 
   await page.locator('#globalBackButton').click();
 
   const recordText = `自动化现场照片记录-${Date.now()}`;
-  await page.locator('#logButton').click();
+  await page.evaluate(() => openLogDialog());
   await page.locator('#photoInput').setInputFiles(sampleImageFile);
   await page.locator('#photoPreview img').waitFor();
   if (await page.locator('#photoPreview img').count() !== 1) throw new Error('Photo preview failed');
@@ -355,7 +382,7 @@ async function login(page, account = 'chen.pm', password = '001001', remember = 
   await page.screenshot({ path: path.join(root, 'qa-photo-record.png') });
   await page.locator('#logForm').getByRole('button', { name: '保存记录' }).click();
   await page.locator('#logDialog').waitFor({ state: 'hidden' });
-  await page.locator('#logButton').click();
+  await page.evaluate(() => openLogDialog());
   await page.locator('#recentRecordsList').getByText(recordText).waitFor();
   await page.locator('#logDialog').getByRole('button', { name: '关闭' }).click();
 
@@ -363,7 +390,7 @@ async function login(page, account = 'chen.pm', password = '001001', remember = 
   await page.reload();
   await page.waitForLoadState('networkidle');
   await login(page);
-  await page.locator('#logButton').click();
+  await page.evaluate(() => openLogDialog());
   await page.locator('#recentRecordsList').getByText(recordText).waitFor();
   await page.locator('#logDialog').getByRole('button', { name: '关闭' }).click();
   await page.waitForTimeout(350);
@@ -378,17 +405,18 @@ async function login(page, account = 'chen.pm', password = '001001', remember = 
   await mobile.screenshot({ path: path.join(root, 'qa-login-mobile.png'), fullPage: true });
   await login(mobile);
   if (!(await mobile.locator('#menuButton').isVisible())) throw new Error('Mobile menu hidden');
-  if (!(await mobile.locator('#addTaskButton').isVisible())) throw new Error('Dashboard new-task button hidden');
+  if (!(await mobile.locator('#addTaskButton').isVisible())) throw new Error('Daily feedback button hidden');
   await mobile.locator('#menuButton').click();
   if (!((await mobile.locator('#sidebar').getAttribute('class')) || '').includes('open')) throw new Error('Mobile menu failed');
   await mobile.locator('[data-view="tasks"]').click();
   await mobile.waitForTimeout(350);
   if (((await mobile.locator('#sidebar').getAttribute('class')) || '').includes('open')) throw new Error('Mobile sidebar did not close after navigation');
   if (!(await mobile.locator('#globalBackButton').isVisible())) throw new Error('Mobile back button hidden');
-  if (await mobile.locator('#addTaskButton').isVisible()) throw new Error('Mobile new-task button should hide outside dashboard');
+  if (await mobile.locator('#addTaskButton').isVisible()) throw new Error('Mobile feedback button should hide outside daily execution');
   await mobile.screenshot({ path: path.join(root, 'qa-mobile-back.png'), fullPage: true });
   await mobile.locator('#globalBackButton').click();
-  if (!(await mobile.locator('#dashboard').isVisible())) throw new Error('Mobile back to dashboard failed');
+  if (!(await mobile.locator('#intake').isVisible())) throw new Error('Mobile back to daily execution failed');
+  await openLegacyDashboard(mobile);
   await mobile.locator('[data-id="1"] .task-status').click();
   if (!(await mobile.locator('#documentGateDialog').isVisible())) throw new Error('Mobile document gate did not open');
   const gateFitsViewport = await mobile.locator('#documentGateDialog').evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth);

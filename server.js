@@ -21,8 +21,11 @@ const SESSION_HOURS = 12;
 const SHARED_KEYS = new Set([
   'zhuxu-tasks', 'zhuxu-document-state', 'zhuxu-followups', 'zhuxu-organization', 'zhuxu-plans',
   'zhuxu-resource-entries', 'zhuxu-resource-plans', 'zhuxu-concealed-acceptances',
-  'zhuxu-quality-checks', 'zhuxu-attendance', 'zhuxu-safety-inspections', 'zhuxu-site-records'
+  'zhuxu-quality-checks', 'zhuxu-attendance', 'zhuxu-safety-inspections', 'zhuxu-site-records',
+  'zhuxu-intake-records', 'zhuxu-technical-documents', 'zhuxu-cost-documents', 'zhuxu-daily-execution', 'zhuxu-daily-coordination'
 ]);
+const COST_STATE_KEY = 'zhuxu-cost-documents';
+const COST_ROLE_PATTERN = /项目经理|商务|成本|造价/;
 const PUBLIC_FILES = new Set(['index.html', 'styles.css', 'app.js', 'server-bridge.js', 'vendor/jszip.min.js']);
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml' };
 
@@ -68,7 +71,8 @@ const defaultUsers = [
   ['purchaser', 'lin.purchase', '林浩', '采购员', '138 0000 1114', '询价下单与供应跟踪'],
   ['document', 'li.doc', '李娜', '资料员', '138 0000 1113', '报验、送检与资料归档'],
   ['labor', 'zhao.labor', '赵敏', '劳资员', '138 0000 1113', '实名制考勤与工资资料'],
-  ['equipment', 'he.equipment', '何军', '设备管理员', '138 0000 1115', '设备进退场与维保']
+  ['equipment', 'he.equipment', '何军', '设备管理员', '138 0000 1115', '设备进退场与维保'],
+  ['commercial', 'luo.cost', '罗婷', '商务经理', '138 0000 1116', '合同、经济核定、工程量确认与结算管理']
 ];
 
 function nowIso() { return new Date().toISOString(); }
@@ -108,13 +112,21 @@ async function readJson(req) {
     req.on('error', reject);
   });
 }
-function publicUser(user) { return user && { id: user.id, account: user.account, name: user.name, role: user.role, phone: user.phone, scope: user.scope }; }
-function stateSnapshot() {
+function canAccessCost(user) { return Boolean(user && COST_ROLE_PATTERN.test(String(user.role || ''))); }
+function publicUser(user) { return user && { id: user.id, account: user.account, name: user.name, role: user.role, phone: user.phone, scope: user.scope, permissions: { cost: canAccessCost(user) } }; }
+function stateSnapshot(user) {
   const result = {};
   for (const row of db.prepare('SELECT state_key, value_json FROM project_state').all()) {
+    if (row.state_key === COST_STATE_KEY && !canAccessCost(user)) continue;
     try { result[row.state_key] = JSON.parse(row.value_json); } catch { /* 跳过损坏状态 */ }
   }
   return result;
+}
+
+function isCostAttachment(id) {
+  const row = db.prepare('SELECT value_json FROM project_state WHERE state_key = ?').get(COST_STATE_KEY);
+  if (!row) return false;
+  try { return JSON.parse(row.value_json).some(item => (item.files || []).some(file => file.storageKey === id)); } catch { return false; }
 }
 function audit(userId, action, target, detail = {}) {
   db.prepare('INSERT INTO audit_log (user_id, action, target, detail_json, created_at) VALUES (?, ?, ?, ?, ?)').run(userId || null, action, target, JSON.stringify(detail), nowIso());
@@ -212,6 +224,7 @@ async function handleAttachmentUpload(req, res, user) {
 
 function handleAttachmentDownload(req, res, user, id) {
   if (!ATTACHMENT_ID_RE.test(id)) return sendJson(res, 404, { error: '附件不存在' });
+  if (isCostAttachment(id) && !canAccessCost(user)) { audit(user.id, 'permission_denied', `cost-attachment:${id}`); return sendJson(res, 403, { error: '无成控文件访问权限' }); }
   let meta;
   try { meta = JSON.parse(fs.readFileSync(path.join(UPLOAD_DIR, id + '.json'), 'utf8')); } catch { return sendJson(res, 404, { error: '附件不存在' }); }
   const filePath = path.join(UPLOAD_DIR, id + '.bin');
@@ -240,7 +253,7 @@ function recordFailedLogin(ip) { const list = loginAttempts.get(ip) || []; list.
 async function handleApi(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/bootstrap') {
     const user = sessionUser(req);
-    return user ? sendJson(res, 200, { server: true, authenticated: true, user: publicUser(user), state: stateSnapshot() }) : sendJson(res, 200, { server: true, authenticated: false });
+    return user ? sendJson(res, 200, { server: true, authenticated: true, user: publicUser(user), state: stateSnapshot(user) }) : sendJson(res, 200, { server: true, authenticated: false });
   }
   if (req.method === 'POST' && url.pathname === '/api/login') {
     const ip = clientIp(req);
@@ -258,7 +271,7 @@ async function handleApi(req, res, url) {
     db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)').run(tokenHash, user.id, Date.now() + maxAge * 1000, nowIso(), nowIso());
     audit(user.id, 'login', user.account);
     const persistentCookie = body.remember ? `; Max-Age=${maxAge}` : '';
-    return sendJson(res, 200, { user: publicUser(user), state: stateSnapshot() }, { 'Set-Cookie': `zhuxu_session=${encodeURIComponent(token)}; ${COOKIE_SECURE ? 'Secure; ' : ''}HttpOnly; SameSite=Strict; Path=/${persistentCookie}` });
+    return sendJson(res, 200, { user: publicUser(user), state: stateSnapshot(user) }, { 'Set-Cookie': `zhuxu_session=${encodeURIComponent(token)}; ${COOKIE_SECURE ? 'Secure; ' : ''}HttpOnly; SameSite=Strict; Path=/${persistentCookie}` });
   }
   if (req.method === 'POST' && url.pathname === '/api/logout') {
     const token = parseCookies(req).zhuxu_session;
@@ -279,6 +292,7 @@ async function handleApi(req, res, url) {
   if (req.method === 'PUT' && stateMatch) {
     const key = decodeURIComponent(stateMatch[1]);
     if (!SHARED_KEYS.has(key)) return sendJson(res, 400, { error: '不支持的共享数据类型' });
+    if (key === COST_STATE_KEY && !canAccessCost(user)) { audit(user.id, 'permission_denied', COST_STATE_KEY); return sendJson(res, 403, { error: '当前岗位无成控文件读写权限' }); }
     const body = await readJson(req);
     setState(key, body.value, user.id);
     if (key === 'zhuxu-organization' && Array.isArray(body.value)) {

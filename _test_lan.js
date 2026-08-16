@@ -2,7 +2,7 @@ const { chromium } = require('playwright');
 
 const baseUrl = process.env.ZHUXU_TEST_URL || 'http://127.0.0.1:8091';
 const accounts = {
-  pm: ['chen.pm', '001001'], builder: ['wu.builder', '001004'], production: ['wang.prod', '001002']
+  pm: ['chen.pm', '001001'], builder: ['wu.builder', '001004'], production: ['wang.prod', '001002'], commercial: ['luo.cost', '001116']
 };
 
 async function login(page, accountKey) {
@@ -38,7 +38,8 @@ async function login(page, accountKey) {
   await pm.waitForLoadState('networkidle');
   if (!(await pm.locator('.sync-state').textContent()).includes('局域网')) throw new Error('Shared-data connection state missing');
 
-  await pm.locator('#addTaskButton').click();
+  await pm.locator('[data-view="tasks"]').click();
+  await pm.locator('#tasks .subview-action').click();
   await pm.locator('#taskForm input[name="title"]').fill('局域网多人协同测试任务');
   await pm.locator('#taskForm input[name="owner"]').fill('吴晨 · 施工员');
   await pm.locator('#taskForm input[name="creator"]').fill('陈海峰 · 项目经理');
@@ -61,17 +62,71 @@ async function login(page, accountKey) {
   const sharedPlanId = await sharedPlanRow.getAttribute('data-resource-plan-detail');
   await pm.waitForTimeout(300);
 
+  await pm.locator('[data-view="technical"]').click();
+  await pm.locator('#technical .subview-action').click();
+  const technicalForm = pm.locator('#technicalDocumentForm');
+  await technicalForm.locator('select[name="type"]').selectOption('contact');
+  await technicalForm.locator('input[name="code"]').fill('LXR-2026-LAN');
+  await technicalForm.locator('input[name="title"]').fill('局域网共享技术联系函');
+  await technicalForm.locator('input[name="building"]').fill('3#楼');
+  await technicalForm.locator('input[name="scope"]').fill('3#楼 10F');
+  await technicalForm.locator('textarea[name="content"]').fill('钢筋验收前复核保护层垫块并形成记录。');
+  await technicalForm.getByRole('button', { name: '保存技术文件' }).click();
+  await pm.locator('#technicalDocumentDialog').waitFor({ state: 'hidden' });
+  await pm.waitForTimeout(300);
+
+  await pm.locator('[data-view="cost"]').click();
+  await pm.locator('#cost .subview-action').click();
+  const costForm = pm.locator('#costDocumentForm');
+  await costForm.locator('select[name="type"]').selectOption('quantity');
+  await costForm.locator('input[name="code"]').fill('GCLQR-2026-LAN');
+  await costForm.locator('input[name="title"]').fill('局域网共享现场工程量确认单');
+  await costForm.locator('input[name="party"]').fill('总包单位 / 劳务班组');
+  await costForm.locator('input[name="amount"]').fill('¥12,800');
+  await costForm.locator('input[name="zone"]').fill('3#楼 10F');
+  await costForm.locator('textarea[name="content"]').fill('共同确认3#楼10F现场新增工程量。');
+  await costForm.getByRole('button', { name: '保存成控文件' }).click();
+  await pm.locator('#costDocumentDialog').waitFor({ state: 'hidden' });
+  await pm.waitForTimeout(300);
+
   const denied = await pm.evaluate(async ({ planId }) => {
     const response = await fetch(`/api/approvals/${planId}/0`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'approve' }) });
     return { status: response.status, body: await response.json() };
   }, { planId: sharedPlanId });
   if (denied.status !== 403 || !denied.body.error.includes('无权代办')) throw new Error(`Server did not block cross-account approval: ${denied.status} ${JSON.stringify(denied.body)}`);
 
+  await pm.locator('[data-view="intake"]').click();
+  await pm.evaluate(() => openIntakeDialog());
+  await pm.locator('#intakeForm select[name="source"]').selectOption('manual');
+  await pm.locator('#intakeForm input[name="title"]').fill('局域网共享现场信息');
+  await pm.locator('#intakeForm input[name="zone"]').fill('3#楼 10F');
+  await pm.locator('#intakeForm textarea[name="rawText"]').fill('3#楼10F钢筋验收前复核保护层垫块');
+  await pm.locator('#intakeForm').getByRole('button', { name: '保存并生成待校核项' }).click();
+  await pm.locator('#intakeReviewDialog[open]').waitFor();
+  await pm.locator('#intakeReviewDialog [data-close-dialog]').click();
+  await pm.waitForTimeout(300);
+
   const builderContext = await browser.newContext({ viewport: { width: 1280, height: 820 } });
   const builder = await builderContext.newPage();
   builder.on('pageerror', error => errors.push(`Builder: ${error.message}`));
   await login(builder, 'builder');
-  if (!(await builder.locator('#taskList').getByText('局域网多人协同测试任务').first().isVisible())) throw new Error('Task created by PM was not shared with builder');
+  await builder.locator('[data-view="tasks"]').click();
+  if (!(await builder.locator('#tasks').getByText('局域网多人协同测试任务').first().isVisible())) throw new Error('Task created by PM was not shared with builder');
+  await builder.locator('[data-view="intake"]').click();
+  if (!(await builder.evaluate(() => intakeRecords.some(item => item.title === '局域网共享现场信息')))) throw new Error('Information collection record was not shared with builder');
+  await builder.locator('[data-view="technical"]').click();
+  if (!(await builder.locator('#technical').getByText('局域网共享技术联系函', { exact: true }).isVisible())) throw new Error('Technical document was not shared with builder');
+  const builderBootstrap = await builder.evaluate(async () => (await fetch('/api/bootstrap', { credentials: 'same-origin' })).json());
+  if (Object.prototype.hasOwnProperty.call(builderBootstrap.state || {}, 'zhuxu-cost-documents')) throw new Error('Unauthorized builder received cost-control state');
+  await builder.locator('[data-view="cost"]').click();
+  if (!(await builder.locator('#costAccessDialog[open]').isVisible())) throw new Error('Unauthorized builder did not receive cost access warning');
+  if (await builder.locator('#cost.active').count()) throw new Error('Unauthorized builder entered cost-control page');
+  const deniedCostUpdate = await builder.evaluate(async () => {
+    const response = await fetch('/api/state/zhuxu-cost-documents', { method: 'PUT', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: [] }) });
+    return { status: response.status, body: await response.json() };
+  });
+  if (deniedCostUpdate.status !== 403 || !deniedCostUpdate.body.error.includes('无成控文件')) throw new Error(`Server did not protect cost-control state: ${JSON.stringify(deniedCostUpdate)}`);
+  await builder.locator('#costAccessDialog [data-close-dialog]').first().click();
   if (!(await builder.locator('#currentUserCard').getByText('吴晨').isVisible())) throw new Error('Builder login was not bound to server account');
   await builder.locator('[data-view="materials"]').click();
   await builder.locator('#materials [data-resource-tab="plans"]').click();
@@ -93,6 +148,13 @@ async function login(page, accountKey) {
   await action.click();
   await production.locator('#resourceDetailDialog .approval-step').nth(1).getByText('已通过', { exact: false }).waitFor();
 
+  const commercialContext = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  const commercial = await commercialContext.newPage();
+  commercial.on('pageerror', error => errors.push(`Commercial: ${error.message}`));
+  await login(commercial, 'commercial');
+  await commercial.locator('[data-view="cost"]').click();
+  if (!(await commercial.locator('#cost').getByText('局域网共享现场工程量确认单', { exact: true }).isVisible())) throw new Error('Authorized commercial manager could not access shared cost-control document');
+
   await pm.reload();
   await pm.locator('body.authenticated').waitFor();
   await pm.locator('[data-view="materials"]').click();
@@ -103,6 +165,6 @@ async function login(page, accountKey) {
   const health = await pm.evaluate(async () => (await fetch('/api/health')).json());
   if (!health.ok || health.user.account !== 'chen.pm') throw new Error('Authenticated health endpoint failed');
   if (errors.length) throw new Error(errors.join(' | '));
-  await productionContext.close(); await builderContext.close(); await pmContext.close(); await browser.close();
-  console.log('PASS: LAN multi-user login, shared state and server-side approval verified');
+  await commercialContext.close(); await productionContext.close(); await builderContext.close(); await pmContext.close(); await browser.close();
+  console.log('PASS: LAN multi-user login, cost permissions, shared state and server-side approval verified');
 })().catch(error => { console.error(error); process.exit(1); });

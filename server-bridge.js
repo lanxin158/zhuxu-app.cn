@@ -2,7 +2,8 @@
   const sharedKeys = [
     'zhuxu-tasks', 'zhuxu-document-state', 'zhuxu-followups', 'zhuxu-organization', 'zhuxu-plans',
     'zhuxu-resource-entries', 'zhuxu-resource-plans', 'zhuxu-concealed-acceptances',
-    'zhuxu-quality-checks', 'zhuxu-attendance', 'zhuxu-safety-inspections', 'zhuxu-site-records'
+    'zhuxu-quality-checks', 'zhuxu-attendance', 'zhuxu-safety-inspections', 'zhuxu-site-records',
+    'zhuxu-intake-records', 'zhuxu-technical-documents', 'zhuxu-cost-documents', 'zhuxu-daily-execution', 'zhuxu-daily-coordination'
   ];
   const bridge = {
     active: false,
@@ -26,6 +27,7 @@
     hydrate(state = {}) {
       sharedKeys.forEach(key => {
         if (Object.prototype.hasOwnProperty.call(state, key)) localStorage.setItem(key, JSON.stringify(state[key]));
+        else if (key === 'zhuxu-cost-documents' && this.user?.permissions?.cost === false) localStorage.removeItem(key);
       });
     },
     async login(account, password, remember) {

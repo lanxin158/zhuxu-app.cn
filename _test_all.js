@@ -108,10 +108,11 @@ async function runLanTest() {
 
 async function main() {
   if (!LAN_ONLY) {
-    const syntaxFiles = ['app.js', 'server.js', 'server-bridge.js', '_test_app.js', '_test_new_features.js', '_test_lan.js', '_test_all.js'];
+    const syntaxFiles = ['app.js', 'server.js', 'server-bridge.js', '_test_app.js', '_test_new_features.js', '_test_intake.js', '_test_lan.js', '_test_all.js'];
     for (const file of syntaxFiles) runNode(`语法检查：${file}`, ['--check', file]);
     runNode('桌面端与移动端离线流程', ['_test_app.js']);
     runNode('材料审批与隐蔽验收流程', ['_test_new_features.js']);
+    runNode('信息采集、校核与分发流程', ['_test_intake.js']);
   }
   await runLanTest();
   console.log('\nPASS: 项目开发基线全部验证通过');

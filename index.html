@@ -48,8 +48,10 @@
       </div>
 
       <nav class="nav-list">
-        <button class="nav-item active" data-view="dashboard"><span class="nav-icon">⌂</span><span>总览</span></button>
+        <button class="nav-item active" data-view="intake"><span class="nav-icon">☷</span><span>每日执行</span><b class="warn" id="dailyBadge">0</b></button>
         <button class="nav-item" data-view="schedule"><span class="nav-icon">▦</span><span>进度计划</span></button>
+        <button class="nav-item" data-view="technical"><span class="nav-icon">▧</span><span>技术文件</span><b id="technicalBadge">4</b></button>
+        <button class="nav-item" data-view="cost"><span class="nav-icon">¥</span><span>成控文件</span><b id="costBadge">3</b></button>
         <button class="nav-item" data-view="tasks"><span class="nav-icon">✓</span><span>任务协同</span><b id="taskBadge">6</b></button>
         <button class="nav-item" data-view="followups"><span class="nav-icon">↻</span><span>协作催办</span><b class="warn" id="followupBadge">3</b></button>
         <button class="nav-item" data-view="materials"><span class="nav-icon">◇</span><span>材料设备</span></button>
@@ -74,7 +76,7 @@
     <div class="workspace">
       <header class="topbar">
         <button class="icon-button menu-button" id="menuButton" aria-label="打开菜单" aria-expanded="false">☰</button>
-        <button class="global-back-button" id="globalBackButton" aria-label="返回总览" title="返回总览"><span>←</span><b>返回</b></button>
+        <button class="global-back-button" id="globalBackButton" aria-label="返回每日执行首页" title="返回每日执行首页"><span>←</span><b>返回首页</b></button>
         <div class="project-switcher">
           <span>当前项目</span>
           <button id="projectButton">云河智造中心一期 <span>⌄</span></button>
@@ -83,12 +85,12 @@
           <div class="sync-state"><i></i><span>数据已同步</span></div>
           <button class="icon-button" id="exportButton" title="导出项目数据" aria-label="导出项目数据">⇩</button>
           <button class="icon-button notification-button" id="notificationButton" aria-label="查看通知">♢<b>4</b></button>
-          <button class="primary-button" id="addTaskButton"><span>＋</span> 新建任务</button>
+          <button class="primary-button" id="addTaskButton"><span>＋</span> 记录施工反馈</button>
         </div>
       </header>
 
       <main id="main">
-        <section class="view active" id="dashboard" aria-labelledby="dashboardTitle">
+        <section class="view" id="dashboard" aria-labelledby="dashboardTitle" hidden>
           <div class="page-heading">
             <div>
               <p class="eyebrow" id="todayLabel"></p>
@@ -193,7 +195,10 @@
           </div>
         </section>
 
+        <section class="view subview active" id="intake" aria-labelledby="intakeTitle"></section>
         <section class="view subview" id="schedule" aria-labelledby="scheduleTitle"></section>
+        <section class="view subview" id="technical" aria-labelledby="technicalTitle"></section>
+        <section class="view subview" id="cost" aria-labelledby="costTitle"></section>
         <section class="view subview" id="tasks" aria-labelledby="tasksTitle"></section>
         <section class="view subview" id="followups" aria-labelledby="followupsTitle"></section>
         <section class="view subview" id="materials" aria-labelledby="materialsTitle"></section>
@@ -206,6 +211,132 @@
   </div>
 
   <div class="sidebar-scrim" id="sidebarScrim"></div>
+
+  <dialog id="dailyFeedbackDialog" class="wide-dialog">
+    <form id="dailyFeedbackForm" method="dialog">
+      <div class="dialog-heading"><div><span>日计划执行反馈</span><h2>更新任务、人员和资源状态</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <input type="hidden" name="taskId">
+      <label>今日任务<select name="taskSelect" id="dailyFeedbackTaskSelect"></select></label>
+      <div class="form-grid"><label>执行班组<input name="team" required placeholder="例如：钢筋班组"></label><label>任务状态<select name="status"><option value="todo">待开始</option><option value="doing">进行中</option><option value="done">已完成</option></select></label></div>
+      <div class="form-grid"><label>计划投入人数<input name="plannedWorkers" type="number" min="0" required></label><label>实际到岗人数<input name="actualWorkers" type="number" min="0" required></label></div>
+      <div class="form-grid"><label>完成比例（%）<input name="progress" type="number" min="0" max="100" required></label><label>实际完成工程量<input name="actualQuantity" required placeholder="例如：梁板钢筋完成18.6t"></label></div>
+      <section class="daily-feedback-gates">
+        <div><strong>材料保障</strong><div class="form-grid"><label>满足程度（%）<input name="materialPercent" type="number" min="0" max="100" required></label><label>材料情况<input name="materialText" required></label></div></div>
+        <div id="dailyDocumentGateField"><div class="daily-gate-title"><strong>资料条件</strong><span id="dailyDocumentConditionState">待判断</span></div><div class="form-grid"><label>已完成 / 应完成<input name="documentDone" type="number" min="0" required><input name="documentTotal" type="number" min="1" required></label><label>资料情况<input name="documentText" required></label></div></div>
+      </section>
+      <label>施工反馈<textarea name="note" rows="3" required placeholder="记录进展、未完成原因或需要顺延的工作"></textarea></label>
+      <label>现场照片<input name="photos" type="file" accept="image/*" capture="environment" multiple></label>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存施工反馈</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="carryoverDetailDialog" class="wide-dialog">
+    <form method="dialog">
+      <div class="dialog-heading"><div><span id="carryoverDetailDate">昨日未完成计划</span><h2 id="carryoverDetailTitle">续做任务详情</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div id="carryoverDetailBody" class="carryover-detail-body"></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>关闭</button><button type="button" class="primary-button" id="continueCarryoverButton">记录今日续做</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="coordinationDialog">
+    <form id="coordinationForm" method="dialog">
+      <div class="dialog-heading"><div><span>班组提前提出</span><h2>登记明日必须协调的问题</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <label>关联明日任务<select name="taskId" id="coordinationTaskSelect"></select></label>
+      <div class="form-grid"><label>问题类别<select name="category"><option>材料未到场</option><option>图纸或技术问题</option><option>工作面未移交</option><option>设备未准备</option><option>人员不足</option><option>前置工序未完成</option><option>测量放线未完成</option><option>验收未完成</option><option>现场协调问题</option></select></label><label>提出班组<input name="requester" required></label></div>
+      <label>需要协调的问题<textarea name="content" rows="4" required placeholder="说明不解决会影响哪项工作"></textarea></label>
+      <div class="form-grid"><label>协调责任人<input name="owner" list="organizationOwners" required></label><label>最晚解决时间<input name="due" type="datetime-local" required></label></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">提交协调问题</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="technicalNoticeDialog">
+    <form method="dialog">
+      <div class="dialog-heading"><div><span>线上技术交底</span><h2 id="technicalNoticeTitle">设计变更与重点提醒</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <input type="hidden" id="technicalNoticeTaskId">
+      <div id="technicalNoticeBody" class="technical-notice-body"></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>稍后确认</button><button type="button" class="primary-button" id="acknowledgeTechnicalNotice">已阅读并确认</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="technicalDocumentDialog" class="wide-dialog">
+    <form id="technicalDocumentForm" method="dialog">
+      <div class="dialog-heading"><div><span>项目技术文件共享</span><h2>上传图纸、变更、联系函或指令单</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="form-grid"><label>文件类别<select name="type"><option value="drawing">施工图纸</option><option value="change">设计变更</option><option value="contact">联系函</option><option value="instruction">指令单</option></select></label><label>文件编号<input name="code" required placeholder="例如：SJBG-2026-018"></label></div>
+      <label>文件名称<input name="title" required maxlength="100" placeholder="填写图纸、变更或指令主题"></label>
+      <div class="form-grid"><label>所属单体 / 分区<input name="building" required placeholder="例如：3#楼、地下室或室外工程"></label><label>发布日期<input name="issuedAt" type="date" required></label></div>
+      <label>发布人<input name="issuedBy" list="organizationOwners" required></label>
+      <label>适用部位 / 范围<input name="scope" required placeholder="例如：3#楼 8F 梁板"></label>
+      <label>主要内容<textarea name="content" rows="5" required placeholder="填写必须执行的技术要求、变更内容或联系事项"></textarea></label>
+      <label>上传原文件<input name="files" type="file" accept=".pdf,.dwg,.dxf,.doc,.docx,.xls,.xlsx,image/*" multiple><small>支持 PDF、CAD、Word、Excel 和图片，上传后项目成员均可查看。</small></label>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存技术文件</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="technicalDocumentDetailDialog" class="wide-dialog">
+    <form method="dialog">
+      <div class="dialog-heading"><div><span id="technicalDocumentDetailType">技术文件</span><h2 id="technicalDocumentDetailTitle">文件详情</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div id="technicalDocumentDetailBody" class="technical-document-detail"></div>
+      <div class="dialog-actions"><button type="button" class="primary-button" data-close-dialog>关闭</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="costDocumentDialog" class="wide-dialog">
+    <form id="costDocumentForm" method="dialog">
+      <div class="dialog-heading"><div><span>项目成本过程文件</span><h2>新增成控文件</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="form-grid"><label>文件类别<select name="type"><option value="contract">合同</option><option value="economic">经济核定单</option><option value="quantity">现场工程量确认单</option></select></label><label>文件编号<input name="code" required placeholder="例如：HT-2026-015"></label></div>
+      <label>文件名称<input name="title" required maxlength="100" placeholder="填写合同或核定事项名称"></label>
+      <div class="form-grid"><label>责任单位 / 对方单位<input name="party" required placeholder="例如：贵州建工劳务有限公司"></label><label>涉及金额<input name="amount" placeholder="例如：¥380,000；未核价可填待核定"></label></div>
+      <div class="form-grid"><label>所属单体 / 部位<input name="zone" required placeholder="例如：3#楼 8F"></label><label>签发 / 确认日期<input name="issuedAt" type="date" required></label></div>
+      <label>主要内容<textarea name="content" rows="5" required placeholder="填写合同范围、核定原因或现场工程量确认内容"></textarea></label>
+      <label>上传原文件<input name="files" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" multiple><small>上传签章合同、经济核定单、工程量确认单或现场签字扫描件。</small></label>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存成控文件</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="costDocumentDetailDialog" class="wide-dialog">
+    <form method="dialog">
+      <div class="dialog-heading"><div><span id="costDocumentDetailType">成控文件</span><h2 id="costDocumentDetailTitle">文件详情</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div id="costDocumentDetailBody" class="cost-document-detail"></div>
+      <div class="dialog-actions"><button type="button" class="primary-button" data-close-dialog>关闭</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="costAccessDialog">
+    <form method="dialog" class="cost-access-dialog">
+      <div class="dialog-heading"><div><span>权限保护</span><h2>成控文件仅限授权岗位</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="cost-access-lock"><span>¥</span><div><strong id="costAccessCurrentRole">当前岗位无权限</strong><p>合同、经济核定和工程量确认涉及项目成本信息，仅项目经理、商务、成本或造价岗位可以进入。</p></div></div>
+      <div class="dialog-actions"><button type="button" class="primary-button" data-close-dialog>我知道了</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="intakeDialog" class="wide-dialog">
+    <form id="intakeForm" method="dialog">
+      <div class="dialog-heading"><div><span>多源现场信息</span><h2>新增信息采集</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="dialog-description">保留原始文件、采集人、时间和部位。浏览器先做本地文字提取，识别结果经人工校核后才能分发到业务台账。</p>
+      <div class="form-grid"><label>信息来源<select name="source"><option value="file">文件 / 表格</option><option value="photo">现场照片</option><option value="voice">语音记录</option><option value="manual">手工记录</option></select></label><label>拟分发业务<select name="target"><option value="task">任务协同</option><option value="plan">进度计划</option><option value="material">材料需求计划</option><option value="document">资料催办</option><option value="quality">质量问题</option><option value="record">现场记录</option></select></label></div>
+      <label>采集主题<input name="title" required maxlength="80" placeholder="例如：3#楼8F钢筋验收现场信息"></label>
+      <div class="form-grid"><label>区域 / 部位<input name="zone" required placeholder="例如：3#楼 8F 梁板"></label><label>采集人<input name="collector" list="organizationOwners" required></label></div>
+      <label>采集时间<input type="datetime-local" name="collectedAt" required></label>
+      <label class="intake-upload-field">原始文件、照片或表格<input type="file" name="sourceFiles" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,image/*" multiple><small id="intakeFileState">可上传 PDF、Word、Excel、CSV、文字或现场照片，最多 8 个</small></label>
+      <label>语音转写 / 补充说明<textarea name="rawText" rows="5" placeholder="可粘贴微信通知、会议记录、监理指令，或点击下方按钮进行浏览器语音转写"></textarea></label>
+      <button type="button" class="voice-button intake-voice-button" id="intakeVoiceButton"><span>●</span><strong>开始语音转写</strong></button>
+      <div class="local-recognition-notice"><b>本地识别</b><span>当前版本在浏览器内提取文本，不调用外部 AI；识别结果将标记为“待人工校核”。</span></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存并生成待校核项</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="intakeReviewDialog" class="wide-dialog">
+    <form id="intakeReviewForm" method="dialog">
+      <div class="dialog-heading"><div><span>来源可追溯 · 人工把关</span><h2 id="intakeReviewTitle">校核与分发</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <input type="hidden" name="recordId">
+      <div class="intake-source-audit" id="intakeSourceAudit"></div>
+      <div class="form-grid"><label>采集主题<input name="title" required maxlength="80"></label><label>分发到<select name="target"><option value="task">任务协同</option><option value="plan">进度计划</option><option value="material">材料需求计划</option><option value="document">资料催办</option><option value="quality">质量问题</option><option value="record">现场记录</option></select></label></div>
+      <div class="form-grid"><label>区域 / 部位<input name="zone" required></label><label>校核人<input name="reviewer" list="organizationOwners" required></label></div>
+      <section class="intake-candidate-editor"><div><strong>识别候选项</strong><small>勾选需要分发的内容，并直接修改识别错误</small></div><div id="intakeReviewCandidates"></div></section>
+      <label>校核说明<textarea name="reviewNote" rows="3" placeholder="记录修正内容、信息完整性或分发依据"></textarea></label>
+      <div class="dialog-actions intake-review-actions"><button type="submit" name="action" value="archive" class="secondary-button">仅归档</button><span></span><button type="submit" name="action" value="save" class="secondary-button">保存校核</button><button type="submit" name="action" value="distribute" class="primary-button">确认并分发</button></div>
+    </form>
+  </dialog>
 
   <dialog id="taskDialog">
     <form id="taskForm" method="dialog">
@@ -259,6 +390,7 @@
       </section>
       <div class="recognition-candidates" id="planRecognitionCandidates"></div>
       <div class="form-grid"><label>计划层级<select name="level"><option value="master">总计划</option><option value="month">月计划</option><option value="week" selected>周计划</option><option value="day">日计划</option></select></label><label>责任岗位<select name="ownerRole"><option>生产经理</option><option>项目经理</option><option>土建工程师</option><option>机电工程师</option></select></label></div>
+      <label id="parentWeekPlanField" hidden>所属周计划<select name="parentId"><option value="">系统按日期自动匹配</option></select><small class="match-hint">日计划必须归入周计划，才能自动判断周进度是否滞后。</small></label>
       <label>工作名称<input name="title" required placeholder="例如：3#楼 9F 主体结构"></label>
       <div class="form-grid"><label>开始日期<input type="date" name="start" required></label><label>完成日期<input type="date" name="end" required></label></div>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">更新计划</button></div>
