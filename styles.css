@@ -264,6 +264,16 @@ dialog label { display: grid; gap: 7px; margin-bottom: 15px; color: #526470; fon
 .nav-item.access-locked { color: #92aabb; }.nav-item.access-locked .nav-icon { color: #ffd18e; }.nav-item.access-locked b { color: #704b16; background: #ffe1a7; font-size: 7px; }.nav-item.access-locked:hover { color: white; }.cost-access-dialog { width: min(500px,calc(100vw - 30px)); }.cost-access-lock { display: grid; grid-template-columns: 56px 1fr; align-items: center; gap: 14px; padding: 16px; border: 1px solid #dccba9; border-radius: 10px; background: #fffaf0; }.cost-access-lock > span { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 12px; color: #173a59; background: #ffd18e; font: 700 23px Consolas,monospace; }.cost-access-lock strong { font-size: 11px; }.cost-access-lock p { margin: 6px 0 0; color: var(--muted); font-size: 9px; line-height: 1.65; }.cost-restricted-state { display: grid; justify-items: center; gap: 8px; padding: 60px 20px; border: 1px solid #dccba9; border-radius: 12px; background: #fffaf0; text-align: center; }.cost-restricted-state > span { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 12px; color: #173a59; background: #ffd18e; font: 700 22px Consolas,monospace; }.cost-restricted-state strong { font-size: 13px; }.cost-restricted-state p { margin: 0; color: var(--muted); font-size: 9px; }
 
 .password-policy-hint { margin: -5px 0 0; color: var(--muted); font-size: 8px; line-height: 1.6; }
+.project-switch-list { display: grid; gap: 8px; max-height: 46vh; overflow-y: auto; }
+.project-switch-item { display: grid; grid-template-columns: 44px minmax(0,1fr) auto; align-items: center; gap: 11px; width: 100%; min-height: 62px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); background: white; cursor: pointer; text-align: left; }
+.project-switch-item:hover:not(:disabled) { border-color: var(--blue-2); background: var(--blue-soft); }
+.project-switch-item.active { border-color: var(--blue-2); background: var(--blue-soft); cursor: default; }
+.project-switch-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 9px; color: white; background: var(--blue); font-size: 16px; font-weight: 700; }
+.project-switch-item strong, .project-switch-item small { display: block; }
+.project-switch-item strong { font-size: 12px; }
+.project-switch-item small { margin-top: 4px; color: var(--muted); font-size: 8px; }
+.project-switch-item em { padding: 4px 8px; border-radius: 6px; color: var(--green); background: var(--green-soft); font-size: 8px; font-style: normal; font-weight: 700; }
+.project-switch-item i { color: var(--blue-2); font-size: 10px; font-style: normal; font-weight: 700; }
 .account-policy-note { margin: -2px 0 0; padding: 10px 12px; border-left: 3px solid var(--orange); border-radius: 7px; color: #76583f; background: var(--orange-soft); font-size: 8px; line-height: 1.65; }
 .account-manage-panel { margin-top: 14px; padding: 17px; border: 1px solid var(--line); border-radius: 11px; background: white; box-shadow: var(--shadow); }
 .account-manage-table { overflow: hidden; border: 1px solid var(--line); border-radius: 9px; }

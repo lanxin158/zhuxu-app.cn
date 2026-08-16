@@ -151,7 +151,12 @@ async function readJson(req) {
 function canAccessCost(user) { return Boolean(user && COST_ROLE_PATTERN.test(String(user.role || ''))); }
 function mustChangePending(user) { return Boolean(user && user.must_change_password === 1); }
 function isProjectManager(user) { return Boolean(user && /项目经理/.test(String(user.role || ''))); }
-function publicUser(user) { return user && { id: user.id, account: user.account, name: user.name, role: user.role, phone: user.phone, scope: user.scope, permissions: { cost: canAccessCost(user) }, mustChangePassword: mustChangePending(user), project: user.project_id ? { id: user.project_id, name: user.project_name || '', code: user.project_code || '' } : null }; }
+function publicUser(user) {
+  if (!user) return null;
+  const base = { id: user.id, account: user.account, name: user.name, role: user.role, phone: user.phone, scope: user.scope, permissions: { cost: canAccessCost(user) }, mustChangePassword: mustChangePending(user), project: user.project_id ? { id: user.project_id, name: user.project_name || '', code: user.project_code || '' } : null };
+  base.projects = db.prepare(`SELECT p.id, p.name, p.code, pm.role FROM project_members pm JOIN projects p ON p.id = pm.project_id AND p.status = 1 WHERE pm.user_id = ? ORDER BY p.created_at, p.name`).all(user.id).map(row => ({ id: row.id, name: row.name, code: row.code, role: row.role }));
+  return base;
+}
 const STATE_WRITE_ROLES = {
   'zhuxu-organization': ['项目经理'],
   'zhuxu-attendance': ['劳资员', '项目经理']
@@ -415,6 +420,21 @@ async function handleApi(req, res, url) {
     const { projectId } = createProjectRecord(setup);
     audit(user.id, 'project_created', projectId, { projectName: setup.projectName, adminAccount: setup.adminAccount, createdBy: user.account });
     return sendJson(res, 200, { ok: true, project: { id: projectId, name: setup.projectName, code: setup.projectCode }, adminAccount: setup.adminAccount });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/projects/switch') {
+    if (!requireChangedUser(user, res)) return;
+    const body = await readJson(req);
+    const projectId = String(body.projectId || '').trim();
+    const member = projectId ? db.prepare(`SELECT pm.role, pm.phone, pm.scope, p.name AS project_name, p.code AS project_code FROM project_members pm JOIN projects p ON p.id = pm.project_id AND p.status = 1 WHERE pm.user_id = ? AND pm.project_id = ?`).get(user.id, projectId) : null;
+    if (!member) { audit(user.id, 'permission_denied', 'project-switch', { projectId }); return sendJson(res, 403, { error: '当前账号未获授权访问该项目' }); }
+    const currentTokenHash = crypto.createHash('sha256').update(parseCookies(req).zhuxu_session || '').digest('hex');
+    db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(currentTokenHash);
+    const token = crypto.randomBytes(32).toString('base64url');
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    db.prepare('INSERT INTO sessions (token_hash, user_id, project_id, expires_at, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)').run(tokenHash, user.id, projectId, Date.now() + SESSION_HOURS * 3600 * 1000, nowIso(), nowIso());
+    audit(user.id, 'project_switch', projectId, { from: user.project_id });
+    const sessionRow = { ...db.prepare('SELECT * FROM users WHERE id = ?').get(user.id), role: member.role || user.role, phone: member.phone || user.phone, scope: member.scope || user.scope, project_id: projectId, project_name: member.project_name, project_code: member.project_code };
+    return sendJson(res, 200, { ok: true, user: publicUser(sessionRow), state: stateSnapshot(sessionRow) }, { 'Set-Cookie': `zhuxu_session=${encodeURIComponent(token)}; ${COOKIE_SECURE ? 'Secure; ' : ''}HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_HOURS * 3600}` });
   }
   if (req.method === 'POST' && url.pathname === '/api/password/change') {
     const body = await readJson(req);

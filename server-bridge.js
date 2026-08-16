@@ -51,6 +51,14 @@
       localStorage.setItem('zhuxu-auth-project', String(result.user.project.id));
       return result.user;
     },
+    async switchProject(projectId) {
+      const payload = await this.request('/api/projects/switch', { method: 'POST', body: JSON.stringify({ projectId }) });
+      this.user = payload.user;
+      this.hydrate(payload.state);
+      sessionStorage.setItem('zhuxu-auth-session', String(payload.user.id));
+      localStorage.setItem('zhuxu-auth-project', String(payload.user.project.id));
+      return payload.user;
+    },
     async logout() {
       if (this.active) await this.request('/api/logout', { method: 'POST', body: '{}' }).catch(() => {});
     },

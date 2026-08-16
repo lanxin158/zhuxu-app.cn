@@ -736,6 +736,15 @@
     </form>
   </dialog>
 
+  <dialog id="projectSwitchDialog">
+    <form method="dialog">
+      <div class="dialog-heading"><div><span>多项目管理</span><h2>切换项目系统</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="dialog-description">同一登录账号可参与多个项目，切换后即可进入对应项目的独立数据空间；未获授权的项目不会出现在列表中。</p>
+      <div id="projectSwitchList" class="project-switch-list">正在加载项目…</div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>关闭</button><button type="button" class="primary-button" id="projectSwitchNew">＋ 建立新的项目系统</button></div>
+    </form>
+  </dialog>
+
   <dialog id="newProjectDialog">
     <form id="newProjectForm" method="dialog">
       <div class="dialog-heading"><div><span>多项目管理</span><h2>建立新的项目系统</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>

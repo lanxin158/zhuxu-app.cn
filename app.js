@@ -677,6 +677,31 @@ async function refreshOrganizationFromServer() {
   } catch (error) { /* 刷新失败时保留现有组织 */ }
 }
 
+function openProjectSwitchDialog() {
+  const dialog = $('#projectSwitchDialog');
+  const list = $('#projectSwitchList');
+  if (!dialog || !list) return;
+  const projects = (window.ZhuxuServer?.user?.projects || []).filter(project => project.id);
+  const items = projects.length ? projects : [currentProject];
+  list.innerHTML = items.map(project => {
+    const active = String(project.id) === String(currentProject.id);
+    return `<button type="button" class="project-switch-item ${active ? 'active' : ''}" data-switch-project="${project.id}" ${active ? 'disabled' : ''}><span class="project-switch-mark">${escapeHtml((project.name || '项').slice(0, 1))}</span><span><strong>${escapeHtml(project.name || '未命名项目')}</strong><small>${project.code ? `${escapeHtml(project.code)} · ` : ''}${escapeHtml(project.role || '')}${active ? ' · 当前项目' : ''}</small></span>${active ? '<em>当前</em>' : '<i>切换 →</i>'}</button>`;
+  }).join('') || '<p class="resource-empty">当前账号暂无项目权限</p>';
+  $$('[data-switch-project]', list).forEach(button => button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      await window.ZhuxuServer.switchProject(button.dataset.switchProject);
+      location.reload();
+    } catch (error) {
+      showToast(error.message || '切换项目失败，请重试');
+      button.disabled = false;
+    }
+  }));
+  $('#projectSwitchNew').hidden = !isServerAccountAdmin();
+  $('#projectSwitchNew').onclick = () => { dialog.close(); openNewProjectDialog(); };
+  dialog.showModal();
+}
+
 function openNewProjectDialog() {
   const form = $('#newProjectForm');
   if (!form) return;
@@ -2740,10 +2765,15 @@ function initializeApp() {
     const submit = form.querySelector('[type="submit"]');
     submit.disabled = true; submit.textContent = '保存中…';
     try {
-      if (accountId) await window.ZhuxuServer.request(`/api/accounts/${encodeURIComponent(accountId)}`, { method: 'PUT', body: JSON.stringify(payload) });
-      else await window.ZhuxuServer.request('/api/accounts', { method: 'POST', body: JSON.stringify(payload) });
+      let toastMessage = '账号信息已更新';
+      if (!accountId) {
+        const result = await window.ZhuxuServer.request('/api/accounts', { method: 'POST', body: JSON.stringify(payload) });
+        toastMessage = result.account?.created ? '账号已创建，初始密码为登记手机号后六位' : '该账号已存在，已加入当前项目（同一账号可登录多个项目）';
+      } else {
+        await window.ZhuxuServer.request(`/api/accounts/${encodeURIComponent(accountId)}`, { method: 'PUT', body: JSON.stringify(payload) });
+      }
       form.reset(); $('#accountDialog').close();
-      showToast(accountId ? '账号信息已更新' : '账号已创建，初始密码为登记手机号后六位');
+      showToast(toastMessage);
       await refreshOrganizationFromServer();
       if ($('#team').classList.contains('active')) renderSubview('team');
     } catch (error) {
@@ -2792,7 +2822,7 @@ function initializeApp() {
   $('#adoptInsightButton').addEventListener('click', event => { event.currentTarget.textContent = '✓ 已采纳，等待计划确认'; event.currentTarget.disabled = true; showToast('建议已加入明日计划草案'); });
   $('#notificationButton').addEventListener('click', () => showToast(`${followups.filter(item => item.status !== 'done').length} 条协作或资料待办，另有 1 条验收提醒`));
   $('#projectButton').addEventListener('click', () => {
-    if (serverMode && isServerAccountAdmin()) { openNewProjectDialog(); }
+    if (serverMode) { openProjectSwitchDialog(); }
     else showToast(`当前项目：${currentProject.name}${currentProject.code ? `（${currentProject.code}）` : ''}`);
   });
   $('[data-gate-documents]').addEventListener('click', () => { pendingTaskTransition = null; activeDocumentChain = activeGateChain; $('#documentGateDialog').close(); navigate('documents'); });

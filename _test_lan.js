@@ -6,7 +6,8 @@ const accounts = {
   production: ['wang.prod', '001002', 'ZhuxuWang2026'],
   commercial: ['luo.cost', '001116', 'ZhuxuLuo2026'],
   labor: ['zhao.labor', '001113', 'ZhuxuZhao2026'],
-  'li.tech': ['li.tech', '001201', 'ZhuxuLi2026']
+  'li.tech': ['li.tech', '001201', 'ZhuxuLi2026'],
+  'bob.wu': ['bob.wu', '001301', 'ZhuxuBob2026']
 };
 
 async function waitAuthenticated(page) {
@@ -349,6 +350,35 @@ async function apiPutRaw(page, path, body) {
   await waitAuthenticated(liTech);
   await changePassword(liTech, 'li.tech');
 
+  // —— 同一账号参与多个项目：项目经理将已有账号加入其他项目，登录后可一键切换 ——
+  const bobCreated = await apiPost(pm, '/api/accounts', { name: '吴波', role: '施工员', account: 'bob.wu', phone: '138 0000 1301', scope: '现场施工' });
+  if (bobCreated.status !== 200 || !bobCreated.body.account.created) throw new Error(`bob.wu should be created new in project A: ${JSON.stringify(bobCreated.body)}`);
+  const bobLinked = await apiPost(bAdmin, '/api/accounts', { name: '吴波', role: '施工员', account: 'bob.wu', phone: '138 0000 1301', scope: '现场施工' });
+  if (bobLinked.status !== 200 || bobLinked.body.account.created) throw new Error(`bob.wu should be linked (not re-created) in project B: ${JSON.stringify(bobLinked.body)}`);
+
+  const bobContext = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  const bob = await bobContext.newPage();
+  bob.on('pageerror', error => errors.push(`Bob: ${error.message}`));
+  await loginInitial(bob, 'bob.wu', projectBId);
+  await changePassword(bob, 'bob.wu');
+  const bobProjects = await bob.evaluate(() => (window.ZhuxuServer.user.projects || []).map(project => project.id));
+  if (!bobProjects.includes(projectAId) || !bobProjects.includes(projectBId)) throw new Error(`bob.wu should belong to both projects, got ${JSON.stringify(bobProjects)}`);
+  if (!(await bob.locator('#projectButtonName').textContent()).includes('测试项目B')) throw new Error('bob.wu should be in project B after login');
+  await bob.locator('#projectButton').click();
+  await bob.locator('#projectSwitchDialog[open]').waitFor();
+  if (await bob.locator('#projectSwitchList .project-switch-item').count() !== 2) throw new Error('Project switch list should show two projects');
+  await bob.locator(`#projectSwitchList [data-switch-project="${projectAId}"]`).click();
+  await bob.waitForFunction(() => (document.querySelector('#projectButtonName')?.textContent || '').includes('测试项目A'), null, { timeout: 15000 });
+  await bob.waitForLoadState('networkidle');
+  if (!(await bob.locator('#projectButtonName').textContent()).includes('测试项目A')) throw new Error('Switching to project A failed');
+  const bobBootA = await bob.evaluate(async () => (await fetch('/api/bootstrap', { credentials: 'same-origin' })).json());
+  if (!(bobBootA.state['zhuxu-tasks'] || []).some(task => task.title === '局域网多人协同测试任务')) throw new Error('Project A data was not visible after switching');
+  const deniedSwitch = await bob.evaluate(async () => {
+    const response = await fetch('/api/projects/switch', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: 'proj-nonexistent' }) });
+    return { status: response.status, body: await response.json() };
+  });
+  if (deniedSwitch.status !== 403 || !deniedSwitch.body.error.includes('未获授权')) throw new Error(`Switch to unauthorized project should be 403: ${JSON.stringify(deniedSwitch)}`);
+
   // —— 项目经理刷新后会话保持、审批结果回传 ——
   await pm.reload();
   await pm.locator('body.authenticated').waitFor();
@@ -363,6 +393,6 @@ async function apiPutRaw(page, path, body) {
   if (!health.ok || health.user.account !== 'wang.pm' || health.user.project.id !== projectAId) throw new Error('Authenticated health endpoint failed');
   if (errors.length) throw new Error(errors.join(' | '));
   await wrongContext.close(); await crossContext.close(); await bAdmin.close(); await bContext.close();
-  await liTechContext.close(); await laborContext.close(); await commercialContext.close(); await productionContext.close(); await builderContext.close(); await pmContext.close(); await browser.close();
-  console.log('PASS: init wizard, multi-project isolation, account generation, cost permissions, shared state and server-side approval verified');
+  await bobContext.close(); await liTechContext.close(); await laborContext.close(); await commercialContext.close(); await productionContext.close(); await builderContext.close(); await pmContext.close(); await browser.close();
+  console.log('PASS: init wizard, multi-project isolation, cross-project account switch, account generation, cost permissions and server-side approval verified');
 })().catch(error => { console.error(error); process.exit(1); });
