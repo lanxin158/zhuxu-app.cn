@@ -342,22 +342,40 @@ function validateProjectSetup(body) {
   if (projectName && projectName.length > 60) errors.push('项目名称过长');
   if (!adminName || !adminAccount) errors.push('管理员姓名和登录账号为必填项');
   if (adminAccount && !/^[a-z0-9._-]{3,}$/.test(adminAccount)) errors.push('登录账号仅支持小写字母、数字、点、下划线和连字符');
-  if (adminAccount && db.prepare('SELECT id FROM users WHERE lower(account) = ?').get(adminAccount)) errors.push('登录账号已存在，请更换');
+  const accountExists = Boolean(adminAccount && db.prepare('SELECT id FROM users WHERE lower(account) = ?').get(adminAccount));
   if (adminPhone.replace(/\D/g, '').length < 6) errors.push('管理员手机号需至少包含 6 位数字');
-  const policyError = passwordPolicyError(adminPassword);
-  if (policyError) errors.push(`管理员密码：${policyError}`);
-  return { projectName, projectCode, adminName, adminAccount, adminPhone, adminPassword, errors };
+  if (!accountExists) {
+    const policyError = passwordPolicyError(adminPassword);
+    if (policyError) errors.push(`管理员密码：${policyError}`);
+  }
+  return { projectName, projectCode, adminName, adminAccount, adminPhone, adminPassword, accountExists, errors };
 }
 
-function createProjectRecord(setup) {
+function createProjectRecord(setup, actorUserId = null) {
   const projectId = 'proj-' + crypto.randomBytes(8).toString('hex');
-  const adminId = 'admin-' + crypto.randomBytes(8).toString('hex');
   db.prepare('INSERT INTO projects (id, name, code, created_by, created_at, status) VALUES (?, ?, ?, ?, ?, 1)').run(projectId, setup.projectName, setup.projectCode, setup.adminName, nowIso());
-  const password = passwordRecord(setup.adminPassword);
-  db.prepare('INSERT INTO users (id, account, name, role, phone, scope, password_salt, password_hash, enabled, must_change_password, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?)').run(adminId, setup.adminAccount, setup.adminName, '项目经理', setup.adminPhone, '项目统筹与重大协调', password.salt, password.hash, nowIso());
-  db.prepare('INSERT INTO project_members (project_id, user_id, role, phone, scope) VALUES (?, ?, ?, ?, ?)').run(projectId, adminId, '项目经理', setup.adminPhone, '项目统筹与重大协调');
-  setState('zhuxu-organization', [{ id: adminId, name: setup.adminName, role: '项目经理', account: setup.adminAccount, phone: setup.adminPhone, scope: '项目统筹与重大协调' }], adminId, projectId);
-  return { projectId, adminId };
+  let adminId;
+  const existing = db.prepare('SELECT * FROM users WHERE lower(account) = ?').get(setup.adminAccount);
+  if (existing) {
+    // 已有账号复用为该项目管理员：使用其原有密码，直接加入新项目成员
+    adminId = existing.id;
+    db.prepare('INSERT OR IGNORE INTO project_members (project_id, user_id, role, phone, scope) VALUES (?, ?, ?, ?, ?)').run(projectId, adminId, '项目经理', setup.adminPhone, '项目统筹与重大协调');
+    db.prepare('UPDATE users SET name = ?, updated_at = ? WHERE id = ?').run(setup.adminName, nowIso(), adminId);
+  } else {
+    adminId = 'admin-' + crypto.randomBytes(8).toString('hex');
+    const password = passwordRecord(setup.adminPassword);
+    db.prepare('INSERT INTO users (id, account, name, role, phone, scope, password_salt, password_hash, enabled, must_change_password, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?)').run(adminId, setup.adminAccount, setup.adminName, '项目经理', setup.adminPhone, '项目统筹与重大协调', password.salt, password.hash, nowIso());
+    db.prepare('INSERT INTO project_members (project_id, user_id, role, phone, scope) VALUES (?, ?, ?, ?, ?)').run(projectId, adminId, '项目经理', setup.adminPhone, '项目统筹与重大协调');
+  }
+  const organizationState = [{ id: adminId, name: setup.adminName, role: '项目经理', account: setup.adminAccount, phone: setup.adminPhone, scope: '项目统筹与重大协调' }];
+  if (actorUserId && String(actorUserId) !== String(adminId)) {
+    // 创建者自动加入新项目，便于在项目菜单中直接切换
+    const actor = db.prepare('SELECT * FROM users WHERE id = ?').get(actorUserId);
+    db.prepare('INSERT OR IGNORE INTO project_members (project_id, user_id, role, phone, scope) VALUES (?, ?, ?, ?, ?)').run(projectId, actorUserId, '项目经理', actor?.phone || '', '项目创建人');
+    if (actor) organizationState.push({ id: actor.id, name: actor.name, role: '项目经理', account: actor.account, phone: actor.phone || '', scope: '项目创建人' });
+  }
+  setState('zhuxu-organization', organizationState, adminId, projectId);
+  return { projectId, adminId, reused: Boolean(existing) };
 }
 
 async function handleApi(req, res, url) {
@@ -417,9 +435,9 @@ async function handleApi(req, res, url) {
     if (!requireChangedUser(user, res) || !requireProjectManager(user, res)) return;
     const setup = validateProjectSetup(await readJson(req));
     if (setup.errors.length) return sendJson(res, 400, { error: setup.errors.join('；') });
-    const { projectId } = createProjectRecord(setup);
-    audit(user.id, 'project_created', projectId, { projectName: setup.projectName, adminAccount: setup.adminAccount, createdBy: user.account });
-    return sendJson(res, 200, { ok: true, project: { id: projectId, name: setup.projectName, code: setup.projectCode }, adminAccount: setup.adminAccount });
+    const { projectId, reused } = createProjectRecord(setup, user.id);
+    audit(user.id, 'project_created', projectId, { projectName: setup.projectName, adminAccount: setup.adminAccount, reused, createdBy: user.account });
+    return sendJson(res, 200, { ok: true, project: { id: projectId, name: setup.projectName, code: setup.projectCode }, adminAccount: setup.adminAccount, reused });
   }
   if (req.method === 'POST' && url.pathname === '/api/projects/switch') {
     if (!requireChangedUser(user, res)) return;

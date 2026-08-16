@@ -677,10 +677,16 @@ async function refreshOrganizationFromServer() {
   } catch (error) { /* 刷新失败时保留现有组织 */ }
 }
 
-function openProjectSwitchDialog() {
+async function openProjectSwitchDialog() {
   const dialog = $('#projectSwitchDialog');
   const list = $('#projectSwitchList');
   if (!dialog || !list) return;
+  if (window.ZhuxuServer?.active) {
+    try {
+      const payload = await window.ZhuxuServer.request('/api/bootstrap');
+      window.ZhuxuServer.user = payload.user;
+    } catch (error) { /* 使用本地缓存的用户信息 */ }
+  }
   const projects = (window.ZhuxuServer?.user?.projects || []).filter(project => project.id);
   const items = projects.length ? projects : [currentProject];
   list.innerHTML = items.map(project => {
@@ -2692,13 +2698,14 @@ function initializeApp() {
       submit.disabled = false; submit.textContent = '建立项目并进入系统 →';
     }
   });
-  $('#togglePassword').addEventListener('click', event => {
-    const input = $('#loginForm').elements.password;
+  $$('.password-toggle').forEach(button => button.addEventListener('click', () => {
+    const input = button.closest('.password-field')?.querySelector('input');
+    if (!input) return;
     const visible = input.type === 'text';
     input.type = visible ? 'password' : 'text';
-    event.currentTarget.textContent = visible ? '显示' : '隐藏';
-    event.currentTarget.setAttribute('aria-label', visible ? '显示密码' : '隐藏密码');
-  });
+    button.textContent = visible ? '显示' : '隐藏';
+    button.setAttribute('aria-label', visible ? '显示密码' : '隐藏密码');
+  }));
 
   $('#passwordChangeLogout').addEventListener('click', logoutCurrentUser);
   $('#passwordChangeForm').addEventListener('submit', async event => {
@@ -2741,15 +2748,19 @@ function initializeApp() {
     const adminPhone = form.elements.adminPhone.value.trim();
     const adminPassword = form.elements.adminPassword.value;
     if (!projectName || !adminName || !adminAccount) { errorEl.textContent = '请填写项目名称、管理员姓名和账号。'; return; }
-    const policyError = passwordPolicyError(adminPassword);
-    if (policyError) { errorEl.textContent = `管理员密码：${policyError}。`; form.elements.adminPassword.focus(); return; }
-    if (adminPassword !== form.elements.adminPassword2.value) { errorEl.textContent = '两次输入的密码不一致。'; form.elements.adminPassword2.focus(); return; }
+    if (adminPassword) {
+      const policyError = passwordPolicyError(adminPassword);
+      if (policyError) { errorEl.textContent = `管理员密码：${policyError}。`; form.elements.adminPassword.focus(); return; }
+      if (adminPassword !== form.elements.adminPassword2.value) { errorEl.textContent = '两次输入的密码不一致。'; form.elements.adminPassword2.focus(); return; }
+    }
     const submit = form.querySelector('[type="submit"]');
     submit.disabled = true; submit.textContent = '建立中…';
     try {
       const result = await window.ZhuxuServer.request('/api/projects', { method: 'POST', body: JSON.stringify({ projectName, projectCode: form.elements.projectCode.value.trim(), adminName, adminAccount, adminPhone, adminPassword }) });
       form.reset(); $('#newProjectDialog').close();
-      showToast(`新项目“${result.project.name}”已建立，管理员账号 ${result.adminAccount} 可登录（当前账号仍在本项目）`);
+      showToast(result.reused
+        ? `新项目“${result.project.name}”已建立，管理员账号 ${result.adminAccount} 已复用（使用其原密码登录）；你可在顶栏项目菜单中切换进入`
+        : `新项目“${result.project.name}”已建立，管理员账号 ${result.adminAccount} 可登录；你可在顶栏项目菜单中切换进入`);
     } catch (error) {
       errorEl.textContent = error.message || '建立项目失败，请重试';
     } finally { submit.disabled = false; submit.textContent = '建立新项目'; }

@@ -218,7 +218,8 @@ async function apiPutRaw(page, path, body) {
   if (!(await bAdmin.locator('#projectButtonName').textContent()).includes('测试项目B')) throw new Error('Project B name not shown');
   const bootB = await bAdmin.evaluate(async () => (await fetch('/api/bootstrap', { credentials: 'same-origin' })).json());
   if (bootB.state['zhuxu-tasks'] && bootB.state['zhuxu-tasks'].length) throw new Error('Project B leaked tasks from project A');
-  if (!bootB.state['zhuxu-organization'] || bootB.state['zhuxu-organization'].length !== 1) throw new Error('Project B organization should contain only its admin');
+  const orgB = bootB.state['zhuxu-organization'] || [];
+  if (!orgB.some(person => person.account === 'zhang.pm') || !orgB.some(person => person.account === 'wang.pm')) throw new Error(`Project B organization should contain its admin and the creator, got ${JSON.stringify(orgB.map(p => p.account))}`);
 
   const crossContext = await browser.newContext({ viewport: { width: 1280, height: 820 } });
   const crossLogin = await crossContext.newPage();
@@ -226,8 +227,8 @@ async function apiPutRaw(page, path, body) {
   await openLogin(crossLogin);
   if (await crossLogin.locator('#loginProjectSelect option').count() !== 2) throw new Error('Login page should list two projects');
   await selectProject(crossLogin, projectBId);
-  await crossLogin.locator('#loginForm input[name="account"]').fill('wang.pm');
-  await crossLogin.locator('#loginForm input[name="password"]').fill('WangPm2026');
+  await crossLogin.locator('#loginForm input[name="account"]').fill('wu.builder');
+  await crossLogin.locator('#loginForm input[name="password"]').fill('001004');
   await crossLogin.locator('#loginForm').getByRole('button', { name: '登录平台' }).click();
   await crossLogin.locator('#loginError').getByText('未获授权', { exact: false }).waitFor();
 
@@ -378,6 +379,38 @@ async function apiPutRaw(page, path, body) {
     return { status: response.status, body: await response.json() };
   });
   if (deniedSwitch.status !== 403 || !deniedSwitch.body.error.includes('未获授权')) throw new Error(`Switch to unauthorized project should be 403: ${JSON.stringify(deniedSwitch)}`);
+
+  // —— 用已有账号建立新项目：复用账号并自动加入创建者，顶栏菜单可切换 ——
+  const projectC = await apiPost(pm, '/api/projects', { projectName: '测试项目C', projectCode: 'TC-2026', adminName: '王经理', adminAccount: 'wang.pm', adminPhone: '139 0000 1001', adminPassword: '' });
+  if (projectC.status !== 200 || !projectC.body.reused) throw new Error(`Existing account should be reused for new project: ${projectC.status} ${JSON.stringify(projectC.body)}`);
+  const projectCId = projectC.body.project.id;
+  const pmProjects = await pm.evaluate(async () => (await fetch('/api/bootstrap', { credentials: 'same-origin' })).json());
+  if (!(pmProjects.user.projects || []).some(project => project.id === projectCId)) throw new Error(`wang.pm should belong to new project C, got ${JSON.stringify(pmProjects.user.projects)}`);
+  // 顶栏项目菜单切换：A → C
+  await pm.locator('#projectButton').click();
+  await pm.locator('#projectSwitchDialog[open]').waitFor();
+  if (await pm.locator('#projectSwitchList .project-switch-item').count() !== 3) throw new Error('wang.pm switch list should show three projects (A, B and C)');
+  await pm.locator(`#projectSwitchList [data-switch-project="${projectCId}"]`).click();
+  await pm.waitForFunction(() => (document.querySelector('#projectButtonName')?.textContent || '').includes('测试项目C'), null, { timeout: 15000 });
+  await pm.waitForLoadState('networkidle');
+  const pmBootC = await pm.evaluate(async () => (await fetch('/api/bootstrap', { credentials: 'same-origin' })).json());
+  if (!(pmBootC.state['zhuxu-organization'] || []).some(person => person.account === 'wang.pm')) throw new Error('wang.pm should be in project C organization');
+  // 切回项目 A，保持后续断言上下文
+  await pm.locator('#projectButton').click();
+  await pm.locator(`#projectSwitchList [data-switch-project="${projectAId}"]`).click();
+  await pm.waitForFunction(() => (document.querySelector('#projectButtonName')?.textContent || '').includes('测试项目A'), null, { timeout: 15000 });
+  await pm.waitForLoadState('networkidle');
+
+  // —— 新建项目对话框：密码显示/隐藏按钮 ——
+  await pm.locator('#projectButton').click();
+  await pm.locator('#projectSwitchDialog[open]').waitFor();
+  await pm.locator('#projectSwitchNew').click();
+  await pm.locator('#newProjectDialog[open]').waitFor();
+  await pm.locator('#newProjectForm .password-field .password-toggle').first().click();
+  if (await pm.locator('#newProjectForm input[name="adminPassword"]').evaluate(input => input.type) !== 'text') throw new Error('Password toggle did not reveal password');
+  await pm.locator('#newProjectForm .password-field .password-toggle').first().click();
+  if (await pm.locator('#newProjectForm input[name="adminPassword"]').evaluate(input => input.type) !== 'password') throw new Error('Password toggle did not hide password again');
+  await pm.locator('#newProjectDialog [data-close-dialog]').first().click();
 
   // —— 项目经理刷新后会话保持、审批结果回传 ——
   await pm.reload();

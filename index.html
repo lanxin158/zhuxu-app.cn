@@ -31,7 +31,7 @@
         <p class="login-description">使用组织架构中登记的个人账号登录，系统将按账号职位加载任务和审批权限。</p>
         <label>登录项目<select name="projectId" id="loginProjectSelect"></select></label>
         <label>登录账号<input name="account" autocomplete="username" required placeholder="例如：chen.pm"></label>
-        <label>登录密码<div class="password-field"><input type="password" name="password" autocomplete="current-password" required placeholder="请输入密码"><button type="button" id="togglePassword" aria-label="显示密码">显示</button></div></label>
+        <label>登录密码<div class="password-field"><input type="password" name="password" autocomplete="current-password" required placeholder="请输入密码"><button type="button" id="togglePassword" class="password-toggle" aria-label="显示密码">显示</button></div></label>
         <div class="login-options"><label><input type="checkbox" name="remember"> 在本机保持登录</label><span>初始密码为登记手机号后六位</span></div>
         <p class="login-error" id="loginError" role="alert" aria-live="polite"></p>
         <button type="submit" class="login-submit">登录平台 <span>→</span></button>
@@ -70,8 +70,8 @@
           <label>管理员手机号<input name="adminPhone" required maxlength="20" placeholder="用于联系与后续重置密码"></label>
         </div>
         <div class="form-grid">
-          <label>管理员密码<input type="password" name="adminPassword" autocomplete="new-password" required placeholder="至少 8 位，含字母和数字"></label>
-          <label>确认密码<input type="password" name="adminPassword2" autocomplete="new-password" required placeholder="再次输入密码"></label>
+          <label>管理员密码<div class="password-field"><input type="password" name="adminPassword" autocomplete="new-password" required placeholder="至少 8 位，含字母和数字"><button type="button" class="password-toggle" aria-label="显示密码">显示</button></div></label>
+          <label>确认密码<div class="password-field"><input type="password" name="adminPassword2" autocomplete="new-password" required placeholder="再次输入密码"><button type="button" class="password-toggle" aria-label="显示密码">显示</button></div></label>
         </div>
         <p class="login-error" id="initError" role="alert" aria-live="polite"></p>
         <button type="submit" class="login-submit">建立项目并进入系统 <span>→</span></button>
@@ -704,10 +704,10 @@
     <form id="passwordChangeForm" method="dialog">
       <div class="dialog-heading"><div><span>首次登录安全设置</span><h2>请先修改初始密码</h2></div></div>
       <p class="dialog-description">当前账号正在使用初始密码登录。为保障账号与项目数据安全，请先设置新密码，然后才能继续使用系统。</p>
-      <label>当前密码（初始密码）<input type="password" name="currentPassword" autocomplete="current-password" required placeholder="输入登录时使用的初始密码"></label>
+      <label>当前密码（初始密码）<div class="password-field"><input type="password" name="currentPassword" autocomplete="current-password" required placeholder="输入登录时使用的初始密码"><button type="button" class="password-toggle" aria-label="显示密码">显示</button></div></label>
       <div class="form-grid">
-        <label>新密码<input type="password" name="newPassword" autocomplete="new-password" required placeholder="至少 8 位，含字母和数字"></label>
-        <label>确认新密码<input type="password" name="confirmPassword" autocomplete="new-password" required placeholder="再次输入新密码"></label>
+        <label>新密码<div class="password-field"><input type="password" name="newPassword" autocomplete="new-password" required placeholder="至少 8 位，含字母和数字"><button type="button" class="password-toggle" aria-label="显示密码">显示</button></div></label>
+        <label>确认新密码<div class="password-field"><input type="password" name="confirmPassword" autocomplete="new-password" required placeholder="再次输入新密码"><button type="button" class="password-toggle" aria-label="显示密码">显示</button></div></label>
       </div>
       <p class="password-policy-hint" id="passwordPolicyHint">新密码至少 8 位，且同时包含字母和数字；修改后旧密码立即失效。</p>
       <p class="login-error" id="passwordChangeError" role="alert" aria-live="polite"></p>
@@ -748,11 +748,11 @@
   <dialog id="newProjectDialog">
     <form id="newProjectForm" method="dialog">
       <div class="dialog-heading"><div><span>多项目管理</span><h2>建立新的项目系统</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
-      <p class="dialog-description">新项目将拥有独立的组织架构与数据空间。创建时登记的项目经理账号将作为该项目首位管理员，可在其中建立组织机构并为人员生成登录账号。</p>
+      <p class="dialog-description">新项目将拥有独立的组织架构与数据空间。管理员账号可以是已有账号（复用后使用其原密码登录），也可以是新账号；创建者会自动加入新项目，可在顶栏项目菜单中直接切换。</p>
       <div class="form-grid"><label>项目名称<input name="projectName" required maxlength="60" placeholder="例如：云湖科创中心二期"></label><label>项目编码<input name="projectCode" maxlength="30" placeholder="例如：YH-2026-02（可选）"></label></div>
-      <div class="form-grid"><label>管理员姓名<input name="adminName" required maxlength="30" placeholder="新项目经理姓名"></label><label>管理员账号<input name="adminAccount" required maxlength="40" placeholder="例如：li.pm" autocomplete="off"></label></div>
+      <div class="form-grid"><label>管理员姓名<input name="adminName" required maxlength="30" placeholder="新项目经理姓名"></label><label>管理员账号<input name="adminAccount" required maxlength="40" placeholder="已有账号或新账号，例如：chen.pm" autocomplete="off"></label></div>
       <label>管理员手机号<input name="adminPhone" required maxlength="20" placeholder="用于联系与后续重置密码"></label>
-      <div class="form-grid"><label>管理员密码<input type="password" name="adminPassword" autocomplete="new-password" required placeholder="至少 8 位，含字母和数字"></label><label>确认密码<input type="password" name="adminPassword2" autocomplete="new-password" required placeholder="再次输入密码"></label></div>
+      <div class="form-grid"><label>管理员密码<div class="password-field"><input type="password" name="adminPassword" autocomplete="new-password" placeholder="新账号必填；已有账号时留空" aria-label="管理员密码"><button type="button" class="password-toggle" aria-label="显示密码">显示</button></div></label><label>确认密码<div class="password-field"><input type="password" name="adminPassword2" autocomplete="new-password" placeholder="再次输入密码"><button type="button" class="password-toggle" aria-label="显示密码">显示</button></div></label></div>
       <p class="login-error" id="newProjectError" role="alert" aria-live="polite"></p>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">建立新项目</button></div>
     </form>
