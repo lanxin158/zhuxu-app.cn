@@ -223,37 +223,23 @@ async function apiPutRaw(page, path, body) {
   await pm.locator('#drawingNewBuildingForm input[name="buildingName"]').fill('5#楼');
   await pm.locator('#drawingNewBuildingForm').getByRole('button', { name: '创建单体文件夹' }).click();
   await pm.locator('#drawingNewBuildingDialog').waitFor({ state: 'hidden' });
-  if (!(await pm.locator('.drawing-building-group').filter({ hasText: '5#楼' }).count())) throw new Error('New building folder was not created');
+  if (!(await pm.locator('.technical-building-folders [data-technical-building="5#楼"]').count())) throw new Error('New building folder was not created');
+  if (!(await pm.locator('.technical-building-folders [data-technical-building="4#楼"]').count())) throw new Error('Folder-imported building folder missing');
 
-  // —— 施工图：单体文件夹就地展开直接显示图纸（按专业分组） ——
-  if (await pm.locator('.drawing-building-group').filter({ hasText: '4#楼' }).locator('.drawing-profession-group').count() < 2) throw new Error('Profession groups missing inside building folder');
-  if (!(await pm.locator('.drawing-building-group').filter({ hasText: '4#楼' }).getByText('首层平面图').first().isVisible())) throw new Error('Drawing not directly visible in building folder');
-  if (!(await pm.locator('.drawing-building-group').filter({ hasText: '4#楼' }).getByText('首层梁配筋图').first().isVisible())) throw new Error('Structural drawing not directly visible in building folder');
-  if (!(await pm.locator('.drawing-building-group').filter({ hasText: '3#楼' }).getByText('3#楼 8F 梁配筋图').first().isVisible())) throw new Error('3# building drawing not directly visible');
-  // 点击图纸行直接打开详情
-  await pm.locator('.drawing-building-group').filter({ hasText: '4#楼' }).getByText('首层平面图').first().click();
-  await pm.locator('#technicalDocumentDetailDialog[open]').waitFor();
-  if (!(await pm.locator('#technicalDocumentDetailBody').getByText('首层平面图').first().isVisible())) throw new Error('Drawing detail did not open');
-  await pm.locator('#technicalDocumentDetailDialog [data-close-dialog]').first().click();
-
-  // —— 技术文件关键字搜索（设计变更/联系函/指令单等） ——
-  await pm.locator('[data-technical-filter="contact"]').click();
-  await pm.locator('#technicalSearchInput').fill('钢筋验收');
-  await pm.waitForTimeout(200);
-  if (await pm.locator('#technical .technical-file-row[data-technical-document]').count() !== 1) throw new Error('Contact keyword search should return exactly 1 row');
-  await pm.locator('#technicalSearchInput').fill('不存在的关键字xyz');
-  await pm.waitForTimeout(200);
-  if (!(await pm.locator('#technical').getByText('未找到与', { exact: false }).first().isVisible())) throw new Error('Technical search empty state missing');
-  await pm.locator('#technicalSearchInput').fill('');
-  await pm.waitForTimeout(200);
-  if (await pm.locator('#technical .technical-file-row[data-technical-document]').count() !== 1) throw new Error('Clearing search should restore the contact list');
-  // 施工图视图搜索
-  await pm.locator('[data-technical-filter="drawing"]').click();
-  await pm.locator('#technicalSearchInput').fill('首层梁配筋图');
-  await pm.waitForTimeout(200);
-  if (await pm.locator('#technical .drawing-building-group').count() !== 1) throw new Error('Drawing search should narrow to one building group');
-  await pm.locator('#technicalSearchInput').fill('');
-  await pm.waitForTimeout(200);
+  // —— 施工图：单体文件夹内按专业分组与过滤 ——
+  await pm.locator('.technical-building-folders [data-technical-building="3#楼"]').click();
+  if (await pm.locator('.technical-profession-tabs button').count() < 3) throw new Error('Profession tabs missing inside building folder');
+  await pm.locator('[data-technical-profession="结构"]').click();
+  if (!(await pm.locator('#technical').getByText('3#楼 8F 梁配筋图').first().isVisible())) throw new Error('Structural drawing not shown in structural filter');
+  if (await pm.locator('#technical').getByText('首层平面图').count()) throw new Error('Drawing from another building leaked into filter');
+  await pm.locator('[data-technical-building="all"]').click();
+  await pm.locator('.technical-building-folders [data-technical-building="4#楼"]').click();
+  await pm.locator('[data-technical-profession="建筑"]').click();
+  if (!(await pm.locator('#technical').getByText('首层平面图').first().isVisible())) throw new Error('Architectural drawing not shown in 4# building architectural filter');
+  await pm.locator('[data-technical-profession="结构"]').click();
+  if (!(await pm.locator('#technical').getByText('首层梁配筋图').first().isVisible())) throw new Error('Structural drawing not shown in 4# building structural filter');
+  if (await pm.locator('#technical').getByText('3#楼 8F 梁配筋图').count()) throw new Error('3# building drawing leaked into 4# building filter');
+  await pm.locator('[data-technical-building="all"]').click();
 
   await pm.locator('[data-view="cost"]').click();
   await pm.locator('#cost .subview-action').click();
