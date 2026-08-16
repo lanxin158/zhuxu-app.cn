@@ -571,6 +571,7 @@ function populateLoginProjects() {
   const remembered = localStorage.getItem('zhuxu-auth-project') || '';
   select.innerHTML = projects.map(project => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}${project.code ? `（${escapeHtml(project.code)}）` : ''}</option>`).join('');
   if (projects.some(project => project.id === remembered)) select.value = remembered;
+  if (!select.value && select.options[0]) select.selectedIndex = 0;
   if (select.selectedOptions[0]) $('#loginProjectName').textContent = select.selectedOptions[0].textContent.trim();
 }
 
@@ -2657,7 +2658,10 @@ function initializeApp() {
     const submit = form.querySelector('[type="submit"]');
     submit.disabled = true;
     try {
-      const person = await loginWithCredentials(account, password, form.elements.remember.checked, form.elements.projectId?.value || '');
+      const projectSelect = form.elements.projectId;
+      let projectId = projectSelect?.value || '';
+      if (!projectId && projectSelect?.options?.[0]) projectId = projectSelect.options[0].value;
+      const person = await loginWithCredentials(account, password, form.elements.remember.checked, projectId);
       if (!person) { $('#loginError').textContent = '账号或密码不正确，请核对组织架构登记信息。'; form.elements.password.select(); return; }
       if (person.serverReload) { location.reload(); return; }
       $('#loginError').textContent = '';

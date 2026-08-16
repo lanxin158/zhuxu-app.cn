@@ -109,6 +109,13 @@ async function apiPutRaw(page, path, body) {
   if (!bootA.state['zhuxu-organization'] || bootA.state['zhuxu-organization'].length !== 1) throw new Error('Init organization should contain only the admin');
   if (!(await pm.locator('.sync-state').textContent()).includes('局域网')) throw new Error('Shared-data connection state missing');
 
+  // 单项目账号未选项目时自动带入唯一项目
+  const autoProjectLogin = await pm.evaluate(async () => {
+    const response = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: 'wang.pm', password: 'WangPm2026' }) });
+    return { status: response.status, body: await response.json() };
+  });
+  if (autoProjectLogin.status !== 200 || autoProjectLogin.body.user.project.id !== projectAId) throw new Error(`Single-project login without projectId should auto-select, got ${autoProjectLogin.status} ${JSON.stringify(autoProjectLogin.body)}`);
+
   // 初始化接口只允许一次
   const secondInit = await apiPost(pm, '/api/projects/init', { projectName: 'X', adminName: 'Y', adminAccount: 'y.pm', adminPhone: '13900000009', adminPassword: 'YyyPm2026' });
   if (secondInit.status !== 409) throw new Error(`Second init should be 409, got ${secondInit.status}`);
@@ -384,6 +391,11 @@ async function apiPutRaw(page, path, body) {
   const projectC = await apiPost(pm, '/api/projects', { projectName: '测试项目C', projectCode: 'TC-2026', adminName: '王经理', adminAccount: 'wang.pm', adminPhone: '139 0000 1001', adminPassword: '' });
   if (projectC.status !== 200 || !projectC.body.reused) throw new Error(`Existing account should be reused for new project: ${projectC.status} ${JSON.stringify(projectC.body)}`);
   const projectCId = projectC.body.project.id;
+  const multiProjectLogin = await pm.evaluate(async () => {
+    const response = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: 'wang.pm', password: 'WangPm2026' }) });
+    return { status: response.status, body: await response.json() };
+  });
+  if (multiProjectLogin.status !== 400 || !multiProjectLogin.body.error.includes('多个项目')) throw new Error(`Multi-project login without projectId should ask to choose, got ${multiProjectLogin.status} ${JSON.stringify(multiProjectLogin.body)}`);
   const pmProjects = await pm.evaluate(async () => (await fetch('/api/bootstrap', { credentials: 'same-origin' })).json());
   if (!(pmProjects.user.projects || []).some(project => project.id === projectCId)) throw new Error(`wang.pm should belong to new project C, got ${JSON.stringify(pmProjects.user.projects)}`);
   // 顶栏项目菜单切换：A → C

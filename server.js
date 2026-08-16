@@ -403,9 +403,15 @@ async function handleApi(req, res, url) {
     if (!loginAllowed(ip)) return sendJson(res, 429, { error: '登录失败次数过多，请十分钟后重试' });
     const body = await readJson(req);
     const account = String(body.account || '').trim().toLowerCase();
-    const projectId = String(body.projectId || '').trim();
+    let projectId = String(body.projectId || '').trim();
     const user = db.prepare('SELECT * FROM users WHERE lower(account) = ? AND enabled = 1').get(account);
-    const member = user && projectId ? db.prepare('SELECT pm.role, pm.phone, pm.scope, p.name AS project_name, p.code AS project_code FROM project_members pm JOIN projects p ON p.id = pm.project_id AND p.status = 1 WHERE pm.user_id = ? AND pm.project_id = ?').get(user.id, projectId) : null;
+    let member = user && projectId ? db.prepare('SELECT pm.role, pm.phone, pm.scope, p.name AS project_name, p.code AS project_code FROM project_members pm JOIN projects p ON p.id = pm.project_id AND p.status = 1 WHERE pm.user_id = ? AND pm.project_id = ?').get(user.id, projectId) : null;
+    if (!member && user && !projectId) {
+      // 未选择项目：账号只属于一个项目时自动带入；属于多个项目时提示选择
+      const only = db.prepare('SELECT pm.project_id, pm.role, pm.phone, pm.scope, p.name AS project_name, p.code AS project_code FROM project_members pm JOIN projects p ON p.id = pm.project_id AND p.status = 1 WHERE pm.user_id = ?').all(user.id);
+      if (only.length === 1) { projectId = only[0].project_id; member = only[0]; }
+      else if (only.length > 1) return sendJson(res, 400, { error: '该账号属于多个项目，请在登录页选择要登录的项目' });
+    }
     if (!user || !verifyPassword(String(body.password || ''), user.password_salt, user.password_hash) || !member) {
       recordFailedLogin(ip); audit(user?.id, 'login_failed', account, { projectId }); return sendJson(res, 401, { error: '账号或密码不正确，或未获授权登录该项目' });
     }
