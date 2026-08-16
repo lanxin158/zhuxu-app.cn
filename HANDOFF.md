@@ -278,7 +278,7 @@
 ## 14. Git 与工作区状态
 
 - 当前分支：`master`
-- 最近提交：`（本文件之后的绘图专业归档与排版修复提交，见 git log）`
+- 最近提交：`c6edc49`（feat: group drawings by building+profession, upload drawing folders, fix detail typography）
 - 未提交文件：交接完成时应为“无”；接收方必须以实际 `git status` 为准。
 - 新增但未跟踪文件：交接完成时应为“无”；运行数据和测试截图属于已忽略文件。项目目录中的《基于人工智能的建筑工程施工全过程协同管控工法_初稿.md》为用户文档，不属于本工具代码，勿提交或改写。
 - 是否已创建交接检查点：`是`
