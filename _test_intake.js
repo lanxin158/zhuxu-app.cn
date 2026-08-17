@@ -32,10 +32,9 @@ async function login(page) {
   if (await page.locator('#intake .today-plan-register article').count() !== 6) throw new Error('今日计划未逐项列出');
   if (await page.locator('#intake .weekly-daily-ledger article').count() !== 7) throw new Error('本周每日完成情况不完整');
   if (await page.locator('#intake .weekly-workforce-ledger article').count() !== 7) throw new Error('本周每日投入人员不完整');
-  if (!(await page.locator('#intake .carryover-board').getByText('昨日未完成计划', { exact: true }).isVisible())) throw new Error('昨日续做清单缺失');
-  if (await page.locator('#intake .carryover-item').count() !== 3) throw new Error('昨日续做清单数量不正确');
-  if (await page.locator('#intake .carryover-board').getByText('3#楼混凝土浇筑旁站', { exact: false }).count()) throw new Error('指定删除的混凝土旁站仍在昨日续做清单');
-  if (!(await page.locator('#intake .carryover-item').first().getByText('昨日完成', { exact: true }).isVisible())) throw new Error('昨日完成百分比标签缺失');
+  if (!(await page.locator('#intake .daily-task-row.lagging').first().isVisible())) throw new Error('昨日未完成未并入计划跟踪并标注滞后');
+  if (!(await page.locator('#intake .daily-task-row .lag-badge').first().isVisible())) throw new Error('滞后天数标签缺失');
+  if (await page.locator('#intake .daily-task-row.lagging').getByText('3#楼混凝土浇筑旁站', { exact: false }).count()) throw new Error('指定删除的混凝土旁站被错误当作昨日未完成');
   if (!(await page.locator('#intake .daily-task-board').getByText('今日计划跟踪', { exact: true }).isVisible())) throw new Error('今日计划跟踪标题缺失');
   if (!(await page.locator('#intake .tomorrow-coordination').getByText('需协调事项跟踪', { exact: true }).isVisible())) throw new Error('协调事项跟踪标题缺失');
 
@@ -48,31 +47,26 @@ async function login(page) {
       const record = attendanceRecords.find(item => item.date === key);
       return record ? `${record.actual} 人` : '未上传';
     });
-    return { date, dayPlans: plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date).length, rows: document.querySelectorAll('#intake [data-day-plan]').length, visibleAttendance, expectedAttendance };
+    const todayDayPlans = plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date).length;
+    const carryoverCount = getCarryoverContexts(shiftDateKey(date, -1)).filter(item => Number(item.record.progress || 0) < 100 && Number(item.task.id) !== 4).length;
+    return { date, todayDayPlans, carryoverCount, rows: document.querySelectorAll('#intake [data-day-plan]').length, visibleAttendance, expectedAttendance };
   });
-  if (linkage.dayPlans !== linkage.rows || linkage.rows !== 6) throw new Error(`今日任务没有完全来自日进度计划：${JSON.stringify(linkage)}`);
+  if (linkage.todayDayPlans !== 6 || linkage.rows !== 6 + linkage.carryoverCount) throw new Error(`今日任务未完全来自日进度计划或昨日未完成未并入：${JSON.stringify(linkage)}`);
   if (JSON.stringify(linkage.visibleAttendance) !== JSON.stringify(linkage.expectedAttendance)) throw new Error('本周投入人数与考勤记录不一致');
   if (!(await page.locator('#intake .weekly-progress-compare').getByText('周进度滞后', { exact: false }).first().isVisible())) throw new Error('周进度对比缺失');
   if (await page.locator('#intake .daily-document-risk-list li').count() < 1) throw new Error('资料风险项未筛出');
   if (await page.locator('#intake .daily-support-card.material .daily-material-list > div').count() < 1) throw new Error('材料风险项未筛出');
   if (!(await page.locator('#intake .daily-risk-flag').first().isVisible())) throw new Error('设计变更没有明显风险标识');
-  if (!(await page.locator('#intake .daily-condition.blocked .daily-risk-flag').first().isVisible())) throw new Error('资料门禁风险没有明显警示标识');
+  if (!(await page.locator('#intake .daily-document-risk-list li i.blocked').first().isVisible())) throw new Error('资料门禁风险未在资料风险项中标识');
 
-  await page.locator('#intake .carryover-item').first().click();
-  if (!(await page.locator('#carryoverDetailDialog[open]').getByText('昨日完成百分比', { exact: true }).isVisible())) throw new Error('昨日续做详情未打开');
-  if (!(await page.locator('#carryoverDetailDialog[open]').getByText('65%', { exact: true }).first().isVisible())) throw new Error('昨日完成百分比没有读取昨日记录');
-  await page.locator('#carryoverDetailDialog [data-close-dialog]').first().click();
-
-  // —— 编辑昨日完成情况 ——
+  // —— 编辑昨日完成情况（直接点击滞后行的编辑记录） ——
   const yesterdayInfo = await page.evaluate(() => {
     const date = shiftDateKey(dailyDateKey, -1);
     const carry = getCarryoverContexts(date).filter(item => Number(item.record.progress) < 100 && Number(item.task.id) !== 4)[0];
     return carry ? { id: carry.task.id, date } : null;
   });
   if (!yesterdayInfo) throw new Error('没有可编辑的昨日续做项');
-  await page.locator(`#intake [data-carryover-task="${yesterdayInfo.id}"]`).click();
-  await page.locator('#carryoverDetailDialog[open]').waitFor();
-  await page.locator('#editYesterdayButton').click();
+  await page.locator(`#intake .daily-task-row[data-daily-task="${yesterdayInfo.id}"] .daily-feedback-action[data-feedback-date="${yesterdayInfo.date}"]`).click();
   await page.locator('#dailyFeedbackDialog[open]').waitFor();
   if (!(await page.locator('#dailyFeedbackDialog .dialog-heading').getByText('编辑', { exact: false }).isVisible())) throw new Error('历史日期编辑标题未显示');
   await page.locator('#dailyFeedbackForm input[name="progress"]').fill('70');
@@ -81,16 +75,17 @@ async function login(page) {
   const updatedProgress = await page.evaluate(({ id, date }) => { const record = dailyExecution.find(item => Number(item.taskId) === Number(id) && item.date === date); return record?.progress; }, yesterdayInfo);
   if (updatedProgress !== 70) throw new Error(`昨日完成百分比未能编辑：${updatedProgress}`);
 
-  await page.locator('[data-daily-feedback="1"]').click();
+  const today = await page.evaluate(() => dailyDateKey);
+  await page.locator(`#intake .daily-task-row[data-daily-task="1"] .daily-feedback-action[data-feedback-date="${today}"]`).click();
   if (!(await page.locator('#dailyDocumentGateField.blocked').isVisible())) throw new Error('复试报告待闭环未标记为风险项');
   if (!(await page.locator('#dailyDocumentConditionState').getByText('风险项', { exact: false }).isVisible())) throw new Error('风险项提示文字缺失');
   await page.locator('#dailyFeedbackDialog [data-close-dialog]').first().click();
-  await page.locator('[data-daily-feedback="3"]').click();
+  await page.locator(`#intake .daily-task-row[data-daily-task="3"] .daily-feedback-action[data-feedback-date="${today}"]`).click();
   if (!(await page.locator('#dailyDocumentGateField.warning').isVisible())) throw new Error('普通待签字资料未标记为待完善');
   if (!(await page.locator('#dailyDocumentConditionState').getByText('待完善', { exact: false }).isVisible())) throw new Error('待完善提示文字缺失');
   await page.locator('#dailyFeedbackDialog [data-close-dialog]').first().click();
 
-  await page.locator('[data-daily-feedback="1"]').click();
+  await page.locator(`#intake .daily-task-row[data-daily-task="1"] .daily-feedback-action[data-feedback-date="${today}"]`).click();
   const feedback = page.locator('#dailyFeedbackForm');
   await feedback.locator('input[name="actualWorkers"]').fill('21');
   await feedback.locator('input[name="progress"]').fill('80');
@@ -99,7 +94,7 @@ async function login(page) {
   await feedback.getByRole('button', { name: '保存施工反馈' }).click();
   await page.locator('#dailyFeedbackDialog').waitFor({ state: 'hidden' });
 
-  await page.locator('[data-technical-task="1"]').click();
+  await page.locator(`#intake .daily-task-row[data-record-date="${today}"] [data-technical-task="1"]`).click();
   await page.locator('#technicalNoticeDialog[open]').waitFor();
   if (!(await page.locator('#technicalNoticeBody').getByText('3#楼8F东侧设备洞口附加筋按变更图施工', { exact: false }).isVisible())) throw new Error('设计变更正文未显示');
   if (!(await page.locator('#technicalNoticeBody .notice-source-document').isVisible())) throw new Error('上传的设计变更文件未显示');
