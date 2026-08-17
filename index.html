@@ -257,6 +257,7 @@
     <form id="dailyFeedbackForm" method="dialog">
       <div class="dialog-heading"><div><span>日计划执行反馈</span><h2>更新任务、人员和资源状态</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
       <input type="hidden" name="taskId">
+      <input type="hidden" name="date">
       <label>今日任务<select name="taskSelect" id="dailyFeedbackTaskSelect"></select></label>
       <label>责任人<input name="owner" list="organizationOwners" required placeholder="按组织架构匹配，可手工修改"></label>
       <div class="form-grid"><label>执行班组<input name="team" required placeholder="例如：钢筋班组"></label><label>任务状态<select name="status"><option value="todo">待开始</option><option value="doing">进行中</option><option value="done">已完成</option></select></label></div>
@@ -276,7 +277,7 @@
     <form method="dialog">
       <div class="dialog-heading"><div><span id="carryoverDetailDate">昨日未完成计划</span><h2 id="carryoverDetailTitle">续做任务详情</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
       <div id="carryoverDetailBody" class="carryover-detail-body"></div>
-      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>关闭</button><button type="button" class="primary-button" id="continueCarryoverButton">记录今日续做</button></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>关闭</button><button type="button" class="secondary-button" id="continueCarryoverButton">记录今日续做</button><button type="button" class="primary-button" id="editYesterdayButton">编辑昨日完成</button></div>
     </form>
   </dialog>
 

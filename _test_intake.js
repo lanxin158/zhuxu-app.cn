@@ -63,6 +63,24 @@ async function login(page) {
   if (!(await page.locator('#carryoverDetailDialog[open]').getByText('65%', { exact: true }).first().isVisible())) throw new Error('昨日完成百分比没有读取昨日记录');
   await page.locator('#carryoverDetailDialog [data-close-dialog]').first().click();
 
+  // —— 编辑昨日完成情况 ——
+  const yesterdayInfo = await page.evaluate(() => {
+    const date = shiftDateKey(dailyDateKey, -1);
+    const carry = getCarryoverContexts(date).filter(item => Number(item.record.progress) < 100 && Number(item.task.id) !== 4)[0];
+    return carry ? { id: carry.task.id, date } : null;
+  });
+  if (!yesterdayInfo) throw new Error('没有可编辑的昨日续做项');
+  await page.locator(`#intake [data-carryover-task="${yesterdayInfo.id}"]`).click();
+  await page.locator('#carryoverDetailDialog[open]').waitFor();
+  await page.locator('#editYesterdayButton').click();
+  await page.locator('#dailyFeedbackDialog[open]').waitFor();
+  if (!(await page.locator('#dailyFeedbackDialog .dialog-heading').getByText('编辑', { exact: false }).isVisible())) throw new Error('历史日期编辑标题未显示');
+  await page.locator('#dailyFeedbackForm input[name="progress"]').fill('70');
+  await page.locator('#dailyFeedbackForm').getByRole('button', { name: '保存施工反馈' }).click();
+  await page.locator('#dailyFeedbackDialog').waitFor({ state: 'hidden' });
+  const updatedProgress = await page.evaluate(({ id, date }) => { const record = dailyExecution.find(item => Number(item.taskId) === Number(id) && item.date === date); return record?.progress; }, yesterdayInfo);
+  if (updatedProgress !== 70) throw new Error(`昨日完成百分比未能编辑：${updatedProgress}`);
+
   await page.locator('[data-daily-feedback="1"]').click();
   if (!(await page.locator('#dailyDocumentGateField.blocked').isVisible())) throw new Error('复试报告待闭环未标记为风险项');
   if (!(await page.locator('#dailyDocumentConditionState').getByText('风险项', { exact: false }).isVisible())) throw new Error('风险项提示文字缺失');

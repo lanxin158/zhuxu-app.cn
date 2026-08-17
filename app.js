@@ -2185,14 +2185,15 @@ function renderDailyTaskRow(context, index) {
   const requiredAcknowledgements = notice?.requiredRoles?.length || 0;
   const acknowledged = notice?.acknowledgedBy?.length || 0;
   const weekPlan = plans.find(plan => Number(plan.id) === Number(dayPlan.parentId));
-  const editable = activeExecutionDate === dailyDateKey && !task.virtual;
+  const editable = !task.virtual;
+  const isToday = activeExecutionDate === dailyDateKey;
   return `<article class="daily-task-row ${task.priority === 'risk' ? 'risk' : ''}" data-daily-task="${task.id}" data-day-plan="${dayPlan.id}">
     <div class="daily-task-identity"><span class="daily-sequence">${String(index + 1).padStart(2,'0')}</span><div><strong>${escapeHtml(dayPlan.title)}</strong><small>日计划 #${dayPlan.id} · ${escapeHtml(weekPlan?.title || '待关联周计划')}</small><small>${escapeHtml(task.zone)} · ${escapeHtml(task.owner)} → ${escapeHtml(record.team)}</small><div class="daily-task-progress"><i style="width:${Math.min(100, Number(record.progress || 0))}%"></i></div><em>${record.progress}% · ${escapeHtml(record.actualQuantity || '待反馈')}</em></div></div>
     <div class="daily-worker-cell"><span>班组人员</span><strong>${record.actualWorkers}<small> / ${record.plannedWorkers} 人</small></strong><em class="${workerGap ? 'warning' : 'ready'}">${workerGap ? `缺 ${workerGap} 人` : '投入满足'}</em></div>
     <button type="button" class="daily-condition ${notice ? 'notice' : 'ready'}" ${notice ? `data-technical-task="${task.id}"` : ''}>${notice ? '<i class="daily-risk-flag">!</i>' : ''}<span>技术交底</span><strong>${notice ? `⚠ ${escapeHtml(notice.type)}` : '常规施工'}</strong><small>${notice ? `${acknowledged}/${requiredAcknowledgements} 人确认 · 查看变更内容` : '无新增变更或指令'}</small></button>
     <div class="daily-condition ${material.className}"><span>材料保障</span><strong>${material.label} · ${record.materialPercent}%</strong><small>${escapeHtml(record.materialText)}</small></div>
     <div class="daily-condition ${documents.className}">${documents.className === 'blocked' ? '<i class="daily-risk-flag">!</i>' : ''}<span>资料门禁 · ${documents.label}</span><strong>${record.documentDone}/${record.documentTotal} 项</strong><small>${escapeHtml(record.documentText)} · ${documents.hint}</small></div>
-    <button type="button" class="daily-feedback-action" data-daily-feedback="${task.id}" ${editable ? '' : 'disabled'}>${editable ? '反馈进度' : '历史记录'}</button>
+    <button type="button" class="daily-feedback-action" data-daily-feedback="${task.id}" ${editable ? '' : 'disabled'}>${editable ? (isToday ? '反馈进度' : '编辑记录') : '历史记录'}</button>
   </article>`;
 }
 
@@ -2266,27 +2267,32 @@ function openCarryoverDetail(taskId, date) {
   const continueButton = $('#continueCarryoverButton');
   continueButton.disabled = !todayContext;
   continueButton.textContent = todayContext ? '记录今日续做' : '尚未列入今日计划';
-  continueButton.onclick = () => { if (!todayContext) return; $('#carryoverDetailDialog').close(); openDailyFeedbackDialog(taskId); };
+  continueButton.onclick = () => { if (!todayContext) return; $('#carryoverDetailDialog').close(); openDailyFeedbackDialog(taskId, dailyDateKey); };
+  const editYesterdayButton = $('#editYesterdayButton');
+  editYesterdayButton.onclick = () => { $('#carryoverDetailDialog').close(); openDailyFeedbackDialog(taskId, date); };
   $('#carryoverDetailDialog').showModal();
 }
 
-function openDailyFeedbackDialog(taskId = null) {
-  activeExecutionDate = dailyDateKey;
-  const dailyTasks = getDailyTaskContexts(dailyDateKey).map(item => item.task).filter(item => !item.virtual);
+function openDailyFeedbackDialog(taskId = null, dateKey = activeExecutionDate) {
+  const dailyTasks = getDailyTaskContexts(dateKey).map(item => item.task).filter(item => !item.virtual);
   const selectedTask = dailyTasks.find(item => Number(item.id) === Number(taskId)) || dailyTasks.find(item => item.status !== 'done') || dailyTasks[0];
-  if (!selectedTask) { showToast('今天还没有日进度计划任务，请先编制日计划'); return; }
+  if (!selectedTask) { showToast(dateKey === dailyDateKey ? '今天还没有日进度计划任务，请先编制日计划' : `${formatDayLabel(dateKey)} 没有日进度计划任务`); return; }
   const select = $('#dailyFeedbackTaskSelect');
   select.innerHTML = dailyTasks.map(item => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join('');
   select.value = String(selectedTask.id);
-  loadDailyFeedbackTask(selectedTask.id);
+  $('#dailyFeedbackForm').elements.date.value = dateKey;
+  const isToday = dateKey === dailyDateKey;
+  $('#dailyFeedbackDialog .dialog-heading span').textContent = isToday ? '日计划执行反馈' : `编辑 ${formatDayLabel(dateKey)} 完成情况`;
+  $('#dailyFeedbackDialog .dialog-heading h2').textContent = isToday ? '更新任务、人员和资源状态' : '补录或修正历史完成情况';
+  loadDailyFeedbackTask(selectedTask.id, dateKey);
   $('#dailyFeedbackDialog').showModal();
 }
 
-function loadDailyFeedbackTask(taskId) {
+function loadDailyFeedbackTask(taskId, dateKey = dailyDateKey) {
   const task = tasks.find(item => Number(item.id) === Number(taskId));
   if (!task) return;
-  const dayPlan = plans.find(plan => plan.level === 'day' && Number(plan.taskId) === Number(task.id) && plan.start === dailyDateKey);
-  const record = getDailyExecutionRecord(task.id, dailyDateKey, dayPlan);
+  const dayPlan = plans.find(plan => plan.level === 'day' && Number(plan.taskId) === Number(task.id) && plan.start === dateKey);
+  const record = getDailyExecutionRecord(task.id, dateKey, dayPlan);
   const form = $('#dailyFeedbackForm');
   form.elements.taskId.value = task.id; form.elements.taskSelect.value = String(task.id);
   form.elements.owner.value = task.owner || ''; form.elements.team.value = record.team || ''; form.elements.status.value = task.status === 'done' ? 'done' : Number(record.progress) ? 'doing' : 'todo';
@@ -2447,7 +2453,7 @@ function renderSubview(id) {
   }
   container.innerHTML = `<div class="subview-shell"><div class="subview-heading"><div><p class="eyebrow">${escapeHtml(currentProject.name)}</p><h1 id="${id}Title">${config.title}</h1><p>${config.desc}</p></div><button class="primary-button subview-action">＋ ${config.action}</button></div>${body}</div>`;
   $('.subview-action', container).addEventListener('click', () => {
-    if (id === 'intake') openDailyFeedbackDialog();
+    if (id === 'intake') openDailyFeedbackDialog(null, dailyDateKey);
     else if (id === 'technical') openTechnicalDocumentDialog();
     else if (id === 'cost') openCostDocumentDialog();
     else if (id === 'schedule') openPlanDialog();
@@ -2474,7 +2480,7 @@ function renderSubview(id) {
   $('[data-daily-today]', container)?.addEventListener('click', () => { activeExecutionDate = dailyDateKey; renderSubview('intake'); });
   $$('[data-intake-filter]', container).forEach(button => button.addEventListener('click', () => { activeIntakeFilter = button.dataset.intakeFilter; renderSubview('intake'); }));
   $$('[data-review-intake]', container).forEach(button => button.addEventListener('click', () => openIntakeReview(intakeRecords.find(item => Number(item.id) === Number(button.dataset.reviewIntake)))));
-  $$('[data-daily-feedback]', container).forEach(button => button.addEventListener('click', () => openDailyFeedbackDialog(button.dataset.dailyFeedback)));
+  $$('[data-daily-feedback]', container).forEach(button => button.addEventListener('click', () => openDailyFeedbackDialog(Number(button.dataset.dailyFeedback), activeExecutionDate)));
   $$('[data-carryover-task]', container).forEach(button => button.addEventListener('click', () => openCarryoverDetail(button.dataset.carryoverTask, button.dataset.carryoverDate)));
   $$('[data-technical-task]', container).forEach(button => button.addEventListener('click', () => openTechnicalNotice(button.dataset.technicalTask)));
   $('[data-new-coordination]', container)?.addEventListener('click', () => openCoordinationDialog());
@@ -2886,7 +2892,7 @@ function initializeApp() {
   $('#documentStrip').addEventListener('click', () => navigate('documents'));
   $('#organizationButton').addEventListener('click', () => { renderOrganization(); $('#organizationDialog').showModal(); });
   $('#accountSwitcherButton').addEventListener('click', logoutCurrentUser);
-  $('#addTaskButton').addEventListener('click', () => openDailyFeedbackDialog());
+  $('#addTaskButton').addEventListener('click', () => openDailyFeedbackDialog(null, dailyDateKey));
   $('#logButton').addEventListener('click', openLogDialog);
   $('#photoInput').addEventListener('change', handlePhotoSelection);
   $('#morningBriefButton').addEventListener('click', createMorningBrief);
@@ -2955,7 +2961,7 @@ function initializeApp() {
     voiceRecognition.start();
   });
 
-  $('#dailyFeedbackTaskSelect').addEventListener('change', event => loadDailyFeedbackTask(event.target.value));
+  $('#dailyFeedbackTaskSelect').addEventListener('change', event => loadDailyFeedbackTask(Number(event.target.value), $('#dailyFeedbackForm').elements.date.value || dailyDateKey));
   ['documentDone','documentTotal','documentText'].forEach(name => $('#dailyFeedbackForm').elements[name].addEventListener('input', updateDailyDocumentCondition));
   $('#technicalDocumentForm').addEventListener('submit', async event => {
     event.preventDefault();
@@ -3027,20 +3033,24 @@ function initializeApp() {
   $('#dailyFeedbackForm').addEventListener('submit', async event => {
     event.preventDefault();
     const form = event.currentTarget; const data = new FormData(form); const taskId = Number(data.get('taskId'));
-    const dayPlan = plans.find(plan => plan.level === 'day' && Number(plan.taskId) === taskId && plan.start === dailyDateKey);
-    const existing = getDailyExecutionRecord(taskId, dailyDateKey, dayPlan); const submit = form.querySelector('[type="submit"]');
+    const dateKey = data.get('date') || dailyDateKey;
+    const isToday = dateKey === dailyDateKey;
+    const dayPlan = plans.find(plan => plan.level === 'day' && Number(plan.taskId) === taskId && plan.start === dateKey);
+    const existing = getDailyExecutionRecord(taskId, dateKey, dayPlan); const submit = form.querySelector('[type="submit"]');
     submit.disabled = true; submit.textContent = '保存中…';
     try {
       const photos = await prepareResourceAttachments([...form.elements.photos.files]);
-      const record = { ...existing, taskId, dayPlanId: dayPlan?.id || existing.dayPlanId, weekPlanId: dayPlan?.parentId || existing.weekPlanId, date: dailyDateKey, team: data.get('team'), plannedWorkers: Number(data.get('plannedWorkers')), actualWorkers: Number(data.get('actualWorkers')), progress: Number(data.get('progress')), actualQuantity: data.get('actualQuantity'), materialPercent: Number(data.get('materialPercent')), materialText: data.get('materialText'), documentDone: Number(data.get('documentDone')), documentTotal: Number(data.get('documentTotal')), documentText: data.get('documentText'), note: data.get('note'), feedbackPhotos: [...(existing.feedbackPhotos || []), ...photos], feedbackAt: new Date().toISOString(), feedbackBy: currentOperatorLabel() };
-      dailyExecution = dailyExecution.map(item => ((record.dayPlanId && Number(item.dayPlanId) === Number(record.dayPlanId)) || (Number(item.taskId) === taskId && item.date === dailyDateKey)) ? record : item);
-      const status = data.get('status') === 'done' || record.progress >= 100 ? 'done' : data.get('status') === 'doing' || record.progress > 0 ? 'doing' : 'todo';
-      tasks = tasks.map(item => Number(item.id) === taskId ? { ...item, status, owner: data.get('owner') || item.owner } : item);
+      const record = { ...existing, taskId, dayPlanId: dayPlan?.id || existing.dayPlanId, weekPlanId: dayPlan?.parentId || existing.weekPlanId, date: dateKey, team: data.get('team'), plannedWorkers: Number(data.get('plannedWorkers')), actualWorkers: Number(data.get('actualWorkers')), progress: Number(data.get('progress')), actualQuantity: data.get('actualQuantity'), materialPercent: Number(data.get('materialPercent')), materialText: data.get('materialText'), documentDone: Number(data.get('documentDone')), documentTotal: Number(data.get('documentTotal')), documentText: data.get('documentText'), note: data.get('note'), feedbackPhotos: [...(existing.feedbackPhotos || []), ...photos], feedbackAt: new Date().toISOString(), feedbackBy: currentOperatorLabel() };
+      dailyExecution = dailyExecution.map(item => ((record.dayPlanId && Number(item.dayPlanId) === Number(record.dayPlanId)) || (Number(item.taskId) === taskId && item.date === dateKey)) ? record : item);
+      if (isToday) {
+        const status = data.get('status') === 'done' || record.progress >= 100 ? 'done' : data.get('status') === 'doing' || record.progress > 0 ? 'doing' : 'todo';
+        tasks = tasks.map(item => Number(item.id) === taskId ? { ...item, status, owner: data.get('owner') || item.owner } : item);
+      }
       siteRecords.unshift({ id: Date.now(), type: '施工反馈', content: `${tasks.find(item => Number(item.id) === taskId)?.title || '施工任务'}：${record.actualQuantity}；${record.note}`, createdAt: new Date().toISOString(), photos, sourceTaskId: taskId });
       persistDailyExecution(); persistTasks(); persistSiteRecords();
       form.reset(); $('#dailyFeedbackDialog').close();
       if ($('#intake').classList.contains('active')) renderSubview('intake');
-      showToast('施工进度、班组人数、材料和资料状态已更新');
+      showToast(isToday ? '施工进度、班组人数、材料和资料状态已更新' : `${formatDayLabel(dateKey)} 完成情况已更新`);
     } finally { submit.disabled = false; submit.textContent = '保存施工反馈'; }
   });
   $('#coordinationTaskSelect').addEventListener('change', event => { const task = tasks.find(item => Number(item.id) === Number(event.target.value)); if (task) $('#coordinationForm').elements.requester.value = getDailyExecutionRecord(task.id, dailyDateKey).team || currentOperatorLabel(); });
