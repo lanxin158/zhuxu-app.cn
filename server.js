@@ -615,6 +615,23 @@ async function handleApi(req, res, url) {
     setState('zhuxu-resource-plans', plans, user.id, user.project_id); audit(user.id, action === 'approve' ? 'approval_approved' : 'approval_rejected', `resource-plan:${plan.id}:step:${stepIndex}`, { role: step.role, projectId: user.project_id });
     return sendJson(res, 200, { resourcePlans: plans, plan });
   }
+  const withdrawMatch = url.pathname.match(/^\/api\/approvals\/([^/]+)\/withdraw$/);
+  if (req.method === 'POST' && withdrawMatch) {
+    if (!requireChangedUser(user, res)) return;
+    const row = db.prepare('SELECT value_json FROM project_state WHERE project_id = ? AND state_key = ?').get(user.project_id, 'zhuxu-resource-plans');
+    if (!row) return sendJson(res, 409, { error: '材料计划尚未同步到服务器，请刷新后重试' });
+    const plans = JSON.parse(row.value_json);
+    const plan = plans.find(item => String(item.id) === decodeURIComponent(withdrawMatch[1]));
+    if (!plan) return sendJson(res, 404, { error: '材料计划不存在' });
+    const workflow = plan.approvalWorkflow || [];
+    if (workflow.length && workflow.every(step => step.status === 'approved')) return sendJson(res, 409, { error: '审批已全部完成，无法撤回' });
+    const requester = plan.requester || workflow.find(step => step.role === '提报人')?.owner;
+    const isRequester = String(requester || '') === `${user.name} · ${user.role}`;
+    if (!isRequester && !isProjectManager(user)) return sendJson(res, 403, { error: '仅提报人或项目经理可撤回该计划' });
+    plan.approvalWorkflow.forEach(step => { step.status = 'pending'; delete step.actedAt; delete step.actedBy; delete step.actedByAccount; });
+    setState('zhuxu-resource-plans', plans, user.id, user.project_id); audit(user.id, 'approval_withdrawn', `resource-plan:${plan.id}`, { projectId: user.project_id });
+    return sendJson(res, 200, { resourcePlans: plans, plan });
+  }
   return sendJson(res, 404, { error: '接口不存在' });
 }
 

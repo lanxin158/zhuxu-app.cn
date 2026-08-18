@@ -1411,7 +1411,7 @@ function renderResourcesBody() {
     const categories = [...new Set(entries.map(item => item.category))];
     content = `${type === 'material' ? `<div class="resource-category-strip">${categories.map(category => `<span><b>${category}</b>${entries.filter(item => item.category === category).length} 批</span>`).join('')}</div>` : ''}<div class="resource-list"><div class="resource-row header"><span>名称 / 分类</span><span>品牌 / 厂家</span><span>规格型号</span><span>进出场时间</span><span>使用部位</span><span>资料附件</span></div>${entries.map(item => `<button type="button" class="resource-row resource-row-button" data-resource-entry-detail="${item.id}"><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)} · ${item.movement}${item.planId ? ' · 已关联计划' : ''}</small></div><span>${escapeHtml(item.brand)}</span><span>${escapeHtml(item.spec)}</span><span>${new Date(item.arrivalTime).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span><span>${escapeHtml(item.location)}</span><span class="attachment-count">${item.attachments?.length || 0} 个附件 · 查看</span></button>`).join('') || '<div class="resource-empty">还没有登记记录</div>'}</div>`;
   }
-  return `<div class="resource-toolbar"><div class="resource-tabs">${tabs.map(([key, label, count]) => `<button type="button" class="${key === activeResourceTab ? 'active' : ''}" data-resource-tab="${key}">${label}<b>${count}</b></button>`).join('')}</div><div class="resource-toolbar-actions">${activeResourceTab !== 'procurement' ? '<button class="resource-register-button" data-new-resource-plan>新增资源计划</button>' : ''}${activeResourceTab !== 'plans' && activeResourceTab !== 'procurement' ? `<button class="resource-register-button primary" data-register-resource="${activeResourceTab === 'materials' ? 'material' : 'equipment'}">登记${activeResourceTab === 'materials' ? '材料' : '设备'}进出场</button>` : ''}</div></div>${content}`;
+  return `<div class="resource-toolbar"><div class="resource-tabs">${tabs.map(([key, label, count]) => `<button type="button" class="${key === activeResourceTab ? 'active' : ''}" data-resource-tab="${key}">${label}<b>${count}</b></button>`).join('')}</div><div class="resource-toolbar-actions">${activeResourceTab !== 'procurement' ? '<button class="resource-register-button" data-new-resource-plan>新增资源计划</button>' : ''}</div></div>${content}`;
 }
 
 function populateResourcePlanRoles(type = 'material') {
@@ -1583,6 +1583,33 @@ async function previewStoredAttachment(file) {
   $('#attachmentPreviewDialog').showModal();
 }
 
+function canWithdrawResourcePlan(plan) {
+  if (!plan || plan.type !== 'material') return false;
+  const workflow = plan.approvalWorkflow || [];
+  if (workflow.length && workflow.every(step => step.status === 'approved')) return false;
+  const viewer = organizationPersonLabel(getCurrentUser());
+  const requester = plan.requester || workflow.find(step => step.role === '提报人')?.owner;
+  return Boolean(viewer && requester && viewer === requester);
+}
+
+async function withdrawResourcePlan(planId) {
+  const plan = resourcePlans.find(item => Number(item.id) === Number(planId));
+  if (!plan) return;
+  if (window.ZhuxuServer?.active) {
+    try {
+      const result = await window.ZhuxuServer.withdraw(planId);
+      resourcePlans = result.resourcePlans;
+    } catch (error) { showToast(error.message || '服务器撤回失败，请刷新后重试'); return; }
+  } else {
+    plan.approvalWorkflow.forEach(step => { step.status = 'pending'; delete step.actedAt; delete step.actedBy; delete step.actedByAccount; });
+  }
+  persistResources(); persistFollowups();
+  const updated = resourcePlans.find(item => Number(item.id) === Number(planId));
+  $('#resourceDetailDialog').close();
+  if (updated) openResourcePlanDialog(updated);
+  showToast('材料计划已撤回，可重新上传材料审批表后再次提交');
+}
+
 function openResourcePlanDetail(planId) {
   const plan = resourcePlans.find(item => Number(item.id) === Number(planId));
   if (!plan) return;
@@ -1612,11 +1639,12 @@ function openResourcePlanDetail(planId) {
   const purchaseAccess = isMaterialPlanApproved(plan)
     ? `<section class="procurement-gate-panel open"><i>6</i><div><strong>采购材料员已收到</strong><p>项目经理已通过，系统已向 ${escapeHtml(purchaser)} 开放计划并生成“采购待办”。</p></div><em>采购可见</em></section>`
     : `<section class="procurement-gate-panel locked"><i>6</i><div><strong>采购材料员等待接收</strong><p>${currentApproval ? `当前由 ${escapeHtml(currentApproval.owner)} 处理；项目经理通过后才通知 ${escapeHtml(purchaser)}。` : `计划被退回，重新完成五个节点后才通知 ${escapeHtml(purchaser)}。`}</p></div><em>暂不可见</em></section>`;
-  const materialSections = plan.type === 'material' ? `<section class="contract-brand-panel"><div><span>合同品牌要求</span><strong>${plan.contractBrandRequired ? `是 · ${escapeHtml(plan.contractBrand || '待填写品牌')}` : '否 · 合同未指定品牌'}</strong></div><button type="button" data-edit-resource-plan="${plan.id}">编辑品牌与审批</button></section><section class="material-approval-panel"><div class="approval-panel-heading"><div><strong>材料审批流程</strong><small>提报人 → 生产经理 → 技术负责人 → 库管 → 项目经理，逐级通知</small></div><em class="approval-overall ${approvalState}">${approvalLabel}</em></div><div class="approval-viewer"><span>当前登录</span><strong>${escapeHtml(viewerLabel || '未识别账号')}</strong><small>${currentApproval ? (isCurrentUserApprovalOwner(currentApproval) ? '当前审批已分配给你' : '可查看完整进度，不能代替他人审批') : '当前没有待审批节点'}</small></div><div class="approval-flow">${approvalFlow}</div><div class="approval-attachments"><strong>材料审批表 · ${plan.approvalAttachments?.length || 0}</strong>${renderStoredFileList(plan.approvalAttachments || [], '尚未上传材料审批表')}</div></section>${purchaseAccess}` : '';
+  const materialSections = plan.type === 'material' ? `<section class="contract-brand-panel"><div><span>合同品牌要求</span><strong>${plan.contractBrandRequired ? `是 · ${escapeHtml(plan.contractBrand || '待填写品牌')}` : '否 · 合同未指定品牌'}</strong></div><div class="contract-brand-actions">${canWithdrawResourcePlan(plan) ? `<button type="button" data-withdraw-resource-plan="${plan.id}">撤回并修改</button>` : ''}<button type="button" data-edit-resource-plan="${plan.id}">编辑品牌与审批</button></div></section><section class="material-approval-panel"><div class="approval-panel-heading"><div><strong>材料审批流程</strong><small>提报人 → 生产经理 → 技术负责人 → 库管 → 项目经理，逐级通知</small></div><em class="approval-overall ${approvalState}">${approvalLabel}</em></div><div class="approval-viewer"><span>当前登录</span><strong>${escapeHtml(viewerLabel || '未识别账号')}</strong><small>${currentApproval ? (isCurrentUserApprovalOwner(currentApproval) ? '当前审批已分配给你' : '可查看完整进度，不能代替他人审批') : '当前没有待审批节点'}</small></div><div class="approval-flow">${approvalFlow}</div><div class="approval-attachments"><strong>材料审批表 · ${plan.approvalAttachments?.length || 0}</strong>${renderStoredFileList(plan.approvalAttachments || [], '尚未上传材料审批表')}</div></section>${purchaseAccess}` : '';
   $('#resourceDetailBody').innerHTML = `<section class="resource-detail-hero ${progress.tone}"><div><span>${progress.status}</span><strong>${progress.percent}%</strong></div><p>${progress.notice}</p><i><em style="width:${progress.percent}%"></em></i></section><div class="resource-detail-grid">${resourceDetailItem('资源类型', plan.type === 'material' ? '材料' : '设备')}${resourceDetailItem('计划数量', escapeHtml(plan.quantity))}${resourceDetailItem('累计到场', formatResourceQuantity(progress.arrived, progress.planned.unit))}${resourceDetailItem('未到数量', formatResourceQuantity(progress.remaining, progress.planned.unit))}${resourceDetailItem('要求到场', plan.due)}${resourceDetailItem('使用部位', escapeHtml(plan.location))}${resourceDetailItem('责任岗位', escapeHtml(plan.ownerRole))}${resourceDetailItem('提前预报', '要求到场前 7 天')}</div>${materialSections}<section class="resource-arrival-history"><strong>关联到场记录 · ${progress.linkedEntries.length} 批</strong>${progress.linkedEntries.map(entry => `<button type="button" data-resource-entry-detail="${entry.id}"><span>${new Date(entry.arrivalTime).toLocaleString('zh-CN')}</span><b>${escapeHtml(entry.quantity)}</b><small>${escapeHtml(entry.brand)} · ${escapeHtml(entry.spec)}</small></button>`).join('') || '<p>暂无到场登记。登记材料或设备时选择本计划，即可自动累计。</p>'}</section>`;
   if (!$('#resourceDetailDialog').open) $('#resourceDetailDialog').showModal();
   $$('[data-resource-entry-detail]', $('#resourceDetailBody')).forEach(button => button.addEventListener('click', () => { $('#resourceDetailDialog').close(); openResourceEntryDetail(button.dataset.resourceEntryDetail); }));
   $('[data-edit-resource-plan]', $('#resourceDetailBody'))?.addEventListener('click', () => { $('#resourceDetailDialog').close(); openResourcePlanDialog(plan); });
+  $('[data-withdraw-resource-plan]', $('#resourceDetailBody'))?.addEventListener('click', () => withdrawResourcePlan(plan.id));
   $$('[data-approval-action]', $('#resourceDetailBody')).forEach(button => button.addEventListener('click', () => updateResourceApproval(button.dataset.planId, Number(button.dataset.approvalIndex), button.dataset.approvalAction)));
   const approvalAttachments = $('.approval-attachments', $('#resourceDetailBody'));
   if (approvalAttachments) $$('[data-stored-file-index]', approvalAttachments).forEach(button => button.addEventListener('click', () => previewStoredAttachment(plan.approvalAttachments[Number(button.dataset.storedFileIndex)])));
@@ -2079,7 +2107,7 @@ function renderQualityBody() {
   const pending = qualityItems.filter(item => item.status !== 'closed');
   const filtered = activeQualityFilter === 'pending' ? pending : qualityItems;
   const openInspectionIssues = safetyInspections.reduce((total, inspection) => total + inspection.issues.filter(issue => issue.status !== 'closed').length, 0);
-  const qualityRows = filtered.map(item => `<button type="button" class="quality-check-row" data-edit-quality="${item.id}"><i class="${item.type}">质</i><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.location)} · ${item.date} · 责任人 ${escapeHtml(item.owner)}</small></div><span class="quality-status ${item.status}">${item.status === 'closed' ? '已闭环' : item.status === 'rectifying' ? '整改中' : '待整改'}</span><span>${(item.beforeAttachments?.length || 0) + (item.afterAttachments?.length || 0) + (item.recordAttachments?.length || 0)} 个附件</span></button>`).join('');
+  const qualityRows = filtered.map(item => `<button type="button" class="quality-check-row" data-edit-quality="${item.id}"><i class="${item.type}">质</i><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.location)} · ${item.date} · 责任人 ${escapeHtml(item.owner)}${item.auditedBy ? ` · ${escapeHtml(item.auditedBy)} 已确认整改完成` : ''}</small></div><span class="quality-status ${item.status}">${item.status === 'closed' ? '已闭环' : item.status === 'rectifying' ? '整改中' : '待整改'}</span><span>${(item.beforeAttachments?.length || 0) + (item.afterAttachments?.length || 0) + (item.recordAttachments?.length || 0)} 个附件</span></button>`).join('');
   const inspectionRows = safetyInspections.map(inspection => {
     const open = inspection.issues.filter(issue => issue.status !== 'closed').length;
     const attachments = (inspection.recordAttachments?.length || 0) + (inspection.noticeAttachments?.length || 0) + (inspection.replyAttachments?.length || 0) + inspection.issues.reduce((sum, issue) => sum + (issue.beforeAttachments?.length || 0) + (issue.afterAttachments?.length || 0), 0);
@@ -2110,6 +2138,9 @@ function openQualityCheckDialog(item = null, type = 'quality') {
   $('#qualityExistingAttachments').innerHTML = attachmentGroups.map(([label, files], groupIndex) => `<section data-quality-files="${groupIndex}"><strong>${label} · ${files.length}</strong>${renderStoredFileList(files, `尚无${label}附件`)}</section>`).join('');
   attachmentGroups.forEach(([, files], groupIndex) => $$('[data-stored-file-index]', $(`[data-quality-files="${groupIndex}"]`)).forEach(button => button.addEventListener('click', () => previewStoredAttachment(files[Number(button.dataset.storedFileIndex)]))));
   $('#qualityCheckDialogTitle').textContent = item ? '编辑检查与整改闭环' : '新增质量安全检查';
+  const confirmButton = $('#confirmRectificationButton');
+  confirmButton.hidden = !(item && item.status !== 'closed' && canAuditQualityRectification());
+  if (item?.auditedBy) confirmButton.title = `上次由 ${item.auditedBy} 确认整改完成`;
   $('#qualityCheckDialog').showModal();
 }
 
@@ -2232,6 +2263,11 @@ const intakeStatusLabels = { review: '待校核', distributed: '已分发', arch
 function currentOperatorLabel() {
   const person = organization.find(item => String(item.id) === String(currentUserId)) || organization[0];
   return person ? `${person.name} · ${person.role}` : '项目管理人员';
+}
+
+function canAuditQualityRectification() {
+  const user = getCurrentUser();
+  return Boolean(user && /质量员|项目经理/.test(String(user.role || '')));
 }
 
 function formatIntakeTime(value) {
@@ -2633,7 +2669,7 @@ function renderSubview(id) {
     else if (id === 'schedule') openPlanDialog();
     else if (id === 'tasks') openTaskDialog();
     else if (id === 'followups') openFollowupDialog();
-    else if (id === 'materials') openResourceEntryDialog('material');
+    else if (id === 'materials') openResourceEntryDialog(activeResourceTab === 'equipment' ? 'equipment' : 'material');
     else if (id === 'documents') openDocumentGate(null, activeDocumentChain);
     else if (id === 'quality') activeQualityFilter === 'safety' ? openInspectionBatchDialog() : openQualityCheckDialog();
     else if (id === 'team') { renderOrganization(); $('#organizationDialog').showModal(); }
@@ -2669,7 +2705,6 @@ function renderSubview(id) {
   $$('[data-plan-attachment]', container).forEach(button => button.addEventListener('click', () => { const plan = plans.find(item => Number(item.id) === Number(button.dataset.planAttachment)); const file = plan?.attachments?.[0]; if (file) previewStoredAttachment(file); }));
   $$('[data-edit-task-row]', container).forEach(button => button.addEventListener('click', () => openTaskDialog(tasks.find(task => task.id === Number(button.dataset.editTaskRow)))));
   $$('[data-resource-tab]', container).forEach(button => button.addEventListener('click', () => { activeResourceTab = button.dataset.resourceTab; renderSubview('materials'); }));
-  $('[data-register-resource]', container)?.addEventListener('click', button => openResourceEntryDialog(button.currentTarget.dataset.registerResource));
   $('[data-new-resource-plan]', container)?.addEventListener('click', () => openResourcePlanDialog());
   $('[data-resource-weekly-report]', container)?.addEventListener('click', openResourceWeeklyReport);
   $$('[data-resource-plan-detail]', container).forEach(button => button.addEventListener('click', () => openResourcePlanDetail(button.dataset.resourcePlanDetail)));
@@ -3409,6 +3444,15 @@ function initializeApp() {
     showToast('本批材料进场验收资料已统一更新');
   });
 
+  $('#confirmRectificationButton').addEventListener('click', () => {
+    const form = $('#qualityCheckForm');
+    const existing = qualityChecks.find(item => Number(item.id) === Number(form.elements.checkId.value));
+    if (!(existing?.afterAttachments?.length || form.elements.afterPhotos.files.length)) { showToast('确认整改完成前请先上传整改后照片'); return; }
+    if (!canAuditQualityRectification()) { showToast('仅质量员或项目经理可确认整改完成'); return; }
+    form.elements.status.value = 'closed';
+    if (!form.elements.note.value.trim()) form.elements.note.value = `已由${currentOperatorLabel()}复核确认整改完成`;
+    form.requestSubmit();
+  });
   $('#qualityCheckForm').addEventListener('submit', async event => {
     event.preventDefault(); const form = event.currentTarget; const data = new FormData(form);
     const existing = qualityChecks.find(item => Number(item.id) === Number(data.get('checkId')));
@@ -3416,7 +3460,8 @@ function initializeApp() {
     const beforeAttachments = await prepareResourceAttachments([...form.elements.beforePhotos.files]);
     const afterAttachments = await prepareResourceAttachments([...form.elements.afterPhotos.files]);
     if (data.get('status') === 'closed' && !(existing?.afterAttachments?.length || afterAttachments.length)) { showToast('闭环前请上传整改后照片'); return; }
-    const payload = { type: data.get('type'), title: data.get('title'), location: data.get('location'), owner: data.get('owner'), date: data.get('date'), due: data.get('due'), status: data.get('status'), note: data.get('note'), recordAttachments: [...(existing?.recordAttachments || []), ...recordAttachments], beforeAttachments: [...(existing?.beforeAttachments || []), ...beforeAttachments], afterAttachments: [...(existing?.afterAttachments || []), ...afterAttachments] };
+    const closing = data.get('status') === 'closed';
+    const payload = { type: data.get('type'), title: data.get('title'), location: data.get('location'), owner: data.get('owner'), date: data.get('date'), due: data.get('due'), status: data.get('status'), note: data.get('note'), auditedBy: closing ? currentOperatorLabel() : '', auditedAt: closing ? new Date().toISOString() : '', recordAttachments: [...(existing?.recordAttachments || []), ...recordAttachments], beforeAttachments: [...(existing?.beforeAttachments || []), ...beforeAttachments], afterAttachments: [...(existing?.afterAttachments || []), ...afterAttachments] };
     if (existing) qualityChecks = qualityChecks.map(item => item.id === existing.id ? { ...item, ...payload } : item);
     else qualityChecks.unshift({ id: Date.now(), critical: false, ...payload });
     persistQualityChecks(); editingQualityId = null; form.reset(); $('#qualityCheckDialog').close();
@@ -3446,6 +3491,8 @@ function initializeApp() {
         location: $('.inspection-issue-location', row).value.trim(),
         status,
         reply,
+        auditedBy: status === 'closed' ? (existingIssue?.auditedBy || data.get('inspector')) : '',
+        auditedAt: status === 'closed' ? new Date().toISOString() : '',
         beforeAttachments: [...(existingIssue?.beforeAttachments || []), ...beforeAttachments],
         afterAttachments: mergedAfter
       });

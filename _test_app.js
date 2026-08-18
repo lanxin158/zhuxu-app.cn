@@ -142,7 +142,7 @@ async function openLegacyDashboard(page) {
   if (await page.locator('#materials').getByRole('heading', { name: '材料与设备' }).count() !== 1) throw new Error('Resource navigation failed');
   if (!(await page.locator('#globalBackButton').isVisible())) throw new Error('Back button not visible in subview');
   if (await page.locator('#materials [data-resource-tab]').count() !== 4) throw new Error('Material, equipment, resource plan or procurement tabs missing');
-  await page.locator('#materials [data-register-resource="material"]').click();
+  await page.locator('#materials .subview-action').click();
   await page.locator('#resourceEntryForm input[name="name"]').fill('测试钢筋原材');
   await page.locator('#resourceEntryForm input[name="brand"]').fill('测试钢厂');
   await page.locator('#resourceEntryForm input[name="spec"]').fill('HRB400E Φ20');
@@ -168,7 +168,7 @@ async function openLegacyDashboard(page) {
   await page.locator('#attachmentPreviewDialog').getByRole('button', { name: '关闭' }).click();
   await page.locator('#resourceDetailDialog').getByRole('button', { name: '关闭' }).last().click();
   await page.locator('#materials [data-resource-tab="equipment"]').click();
-  await page.locator('#materials [data-register-resource="equipment"]').click();
+  await page.locator('#materials .subview-action').click();
   await page.locator('#resourceEntryForm input[name="name"]').fill('测试汽车吊');
   await page.locator('#resourceEntryForm input[name="brand"]').fill('徐工');
   await page.locator('#resourceEntryForm input[name="spec"]').fill('QY25K5');
@@ -191,7 +191,7 @@ async function openLegacyDashboard(page) {
   if (!(await page.locator('#resourceDetailDialog').getByText('计划数量').isVisible())) throw new Error('Resource plan detail did not open');
   await page.locator('#resourceDetailDialog').getByRole('button', { name: '关闭' }).last().click();
   await page.locator('#materials [data-resource-tab="equipment"]').click();
-  await page.locator('#materials [data-register-resource="equipment"]').click();
+  await page.locator('#materials .subview-action').click();
   await page.locator('#resourceEntryForm input[name="name"]').fill('测试塔吊使用计划');
   await page.locator('#resourceEntryForm input[name="brand"]').fill('中联重科');
   await page.locator('#resourceEntryForm input[name="spec"]').fill('TC6515');

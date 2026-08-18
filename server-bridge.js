@@ -72,6 +72,9 @@
         method: 'POST', body: JSON.stringify({ action })
       });
     },
+    async withdraw(planId) {
+      return this.request(`/api/approvals/${encodeURIComponent(planId)}/withdraw`, { method: 'POST', body: '{}' });
+    },
     async uploadAttachment(file) {
       const form = new FormData();
       form.append('file', file);
