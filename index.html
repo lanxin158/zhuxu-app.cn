@@ -98,6 +98,7 @@
         <button class="nav-item" data-view="documents"><span class="nav-icon">▤</span><span>资料完成情况</span><b class="warn" id="documentBadge">2</b></button>
         <button class="nav-item" data-view="quality"><span class="nav-icon">◎</span><span>质量安全</span><b class="warn">3</b></button>
         <button class="nav-item" data-view="team"><span class="nav-icon">♙</span><span>组织架构</span></button>
+        <button class="nav-item" data-view="laborers"><span class="nav-icon">⛑</span><span>民工管理</span></button>
       </nav>
 
       <div class="site-weather">
@@ -244,6 +245,7 @@
         <section class="view subview" id="documents" aria-labelledby="documentsTitle"></section>
         <section class="view subview" id="quality" aria-labelledby="qualityTitle"></section>
         <section class="view subview" id="team" aria-labelledby="teamTitle"></section>
+        <section class="view subview" id="laborers" aria-labelledby="laborersTitle"></section>
         <section class="view subview" id="analytics" aria-labelledby="analyticsTitle"></section>
       </main>
     </div>
@@ -642,6 +644,19 @@
       <div class="inspection-issues-heading"><div><strong>逐一整改子项</strong><small>每个子项可自动匹配组织架构责任人，也可手工修改</small></div><button type="button" class="secondary-button" id="addInspectionIssueButton">＋ 添加问题</button></div>
       <div class="inspection-issue-editor" id="inspectionIssueEditor"></div>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存巡检及整改</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="laborerDialog">
+    <form id="laborerForm" method="dialog">
+      <div class="dialog-heading"><div><span>民工花名册</span><h2 id="laborerDialogTitle">登记民工</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="dialog-description">登记实名制民工信息；上传考勤表后系统按姓名自动匹配到花名册。</p>
+      <input type="hidden" name="laborerId">
+      <label>姓名<input name="name" required placeholder="例如：王强"></label>
+      <div class="form-grid"><label>工种<input name="trade" placeholder="例如：钢筋工"></label><label>班组<input name="team" placeholder="例如：钢筋班组"></label></div>
+      <div class="form-grid"><label>联系电话<input name="phone" placeholder="例如：138 0000 0000"></label><label>进场日期<input type="date" name="entryDate" required></label></div>
+      <label>在场状态<select name="status"><option value="在场">在场</option><option value="退场">退场</option></select></label>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存民工信息</button></div>
     </form>
   </dialog>
 

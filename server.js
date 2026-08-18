@@ -23,7 +23,7 @@ const SHARED_KEYS = new Set([
   'zhuxu-resource-entries', 'zhuxu-resource-plans', 'zhuxu-concealed-acceptances',
   'zhuxu-quality-checks', 'zhuxu-attendance', 'zhuxu-safety-inspections', 'zhuxu-site-records',
   'zhuxu-intake-records', 'zhuxu-technical-documents', 'zhuxu-cost-documents', 'zhuxu-daily-execution', 'zhuxu-daily-coordination',
-  'zhuxu-drawing-buildings'
+  'zhuxu-drawing-buildings', 'zhuxu-laborers'
 ]);
 const COST_STATE_KEY = 'zhuxu-cost-documents';
 const COST_ROLE_PATTERN = /项目经理|商务|成本|造价/;
@@ -161,7 +161,8 @@ function publicUser(user) {
 }
 const STATE_WRITE_ROLES = {
   'zhuxu-organization': ['项目经理', '劳资员'],
-  'zhuxu-attendance': ['劳资员', '项目经理']
+  'zhuxu-attendance': ['劳资员', '项目经理'],
+  'zhuxu-laborers': ['劳资员', '项目经理']
 };
 function canWriteStateKey(user, key) {
   const allowedRoles = STATE_WRITE_ROLES[key];

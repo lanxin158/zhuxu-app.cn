@@ -257,6 +257,7 @@ let resourcePlans = JSON.parse(localStorage.getItem('zhuxu-resource-plans') || '
 let concealedAcceptances = JSON.parse(localStorage.getItem('zhuxu-concealed-acceptances') || 'null') || (serverMode ? [] : defaultConcealedAcceptances);
 let qualityChecks = JSON.parse(localStorage.getItem('zhuxu-quality-checks') || 'null') || (serverMode ? [] : defaultQualityChecks);
 let attendanceRecords = JSON.parse(localStorage.getItem('zhuxu-attendance') || 'null') || (serverMode ? [] : defaultAttendance);
+let laborers = JSON.parse(localStorage.getItem('zhuxu-laborers') || 'null') || [];
 let safetyInspections = JSON.parse(localStorage.getItem('zhuxu-safety-inspections') || 'null') || (serverMode ? [] : defaultSafetyInspections);
 let siteRecords = JSON.parse(localStorage.getItem('zhuxu-site-records') || 'null') || [];
 let intakeRecords = JSON.parse(localStorage.getItem('zhuxu-intake-records') || 'null') || (serverMode ? [] : defaultIntakeRecords);
@@ -356,6 +357,7 @@ let editingInspectionId = null;
 let editingTaskId = null;
 let editingPlanId = null;
 let editingIntakeId = null;
+let editingLaborerId = null;
 let planRecognitionCandidates = [];
 let planAttachmentsDraft = [];
 let planSubtasksDraft = [];
@@ -392,7 +394,7 @@ function syncAllLocalState() {
   if (!window.ZhuxuServer?.active || !authenticatedUserId || mustChangePassword) return;
   persistTasks(); persistDocumentState(); persistOrganization(); persistPlans(); persistConcealedAcceptances();
   persistQualityChecks(); persistAttendance(); persistSafetyInspections(); persistSiteRecords(); persistIntakeRecords(); persistTechnicalDocuments(); persistCostDocuments(); persistDailyExecution(); persistDailyCoordination();
-  persistDrawingBuildings();
+  persistDrawingBuildings(); persistLaborers();
 }
 
 function persistOrganization() { localStorage.setItem('zhuxu-organization', JSON.stringify(organization)); syncServerState('zhuxu-organization', organization); }
@@ -406,6 +408,7 @@ function persistResources() {
 function persistConcealedAcceptances() { localStorage.setItem('zhuxu-concealed-acceptances', JSON.stringify(concealedAcceptances)); syncServerState('zhuxu-concealed-acceptances', concealedAcceptances); }
 function persistQualityChecks() { localStorage.setItem('zhuxu-quality-checks', JSON.stringify(qualityChecks)); syncServerState('zhuxu-quality-checks', qualityChecks); }
 function persistAttendance() { localStorage.setItem('zhuxu-attendance', JSON.stringify(attendanceRecords)); syncServerState('zhuxu-attendance', attendanceRecords); }
+function persistLaborers() { localStorage.setItem('zhuxu-laborers', JSON.stringify(laborers)); syncServerState('zhuxu-laborers', laborers); }
 function persistSafetyInspections() { localStorage.setItem('zhuxu-safety-inspections', JSON.stringify(safetyInspections)); syncServerState('zhuxu-safety-inspections', safetyInspections); }
 function persistSiteRecords() { localStorage.setItem('zhuxu-site-records', JSON.stringify(siteRecords)); syncServerState('zhuxu-site-records', siteRecords); }
 function persistIntakeRecords() {
@@ -1086,7 +1089,8 @@ const subviews = {
   materials: { title: '材料与设备', desc: '材料、设备分别建账，并用资源计划提前暴露供需缺口', action: '登记资源', content: 'resources' },
   documents: { title: '资料完成情况', desc: '让材料、送检、验收资料成为施工进度的放行条件', action: '登记资料结果', content: 'documents' },
   quality: { title: '质量安全', desc: '问题发现、整改、复验全程留痕', action: '新增检查', content: 'quality' },
-  team: { title: '组织架构', desc: '明确项目管理人员职责，并用每日实名制考勤掌握现场投入', action: '编辑管理人员', content: 'team' }
+  team: { title: '组织架构', desc: '明确项目管理人员职责与岗位授权', action: '编辑管理人员', content: 'team' },
+  laborers: { title: '民工管理', desc: '劳资员维护民工花名册，考勤表自动匹配实名制人员', action: '登记民工', content: 'laborers' }
 };
 
 function renderFollowupsBody() {
@@ -2295,20 +2299,29 @@ function openInspectionBatchDialog(inspection = null) {
 }
 
 function renderTeamBody() {
-  const latest = [...attendanceRecords].sort((a,b) => b.date.localeCompare(a.date))[0] || { actual: 0, planned: 0, date: '未登记' };
-  const ratio = latest.planned ? Math.round(latest.actual / latest.planned * 100) : 0;
   const serverActive = Boolean(window.ZhuxuServer?.active);
   const person = getCurrentUser();
   const role = String(person?.role || '');
   const admin = serverActive ? /项目经理/.test(role) : true;
-  const attendanceManager = serverActive ? /(劳资员|项目经理)/.test(role) : true;
   const organizationManager = serverActive ? /(项目经理|劳资员)/.test(role) : true;
   const organizationAction = organizationManager ? `<button type="button" data-edit-organization>编辑人员</button>` : `<span class="management-permission-note">仅项目经理或劳资员可维护组织架构</span>`;
-  const attendanceAction = attendanceManager ? `<button type="button" data-attendance>上传考勤表</button>` : '';
-  const supplementAction = record => attendanceManager ? `<button type="button" class="attendance-supplement-action ${attendanceSupplementWindow(record).allowed ? '' : 'expired'}" data-supplement-attendance="${record.id}" ${attendanceSupplementWindow(record).allowed ? '' : 'disabled'}>${attendanceSupplementLabel(record)}</button>` : '';
   const accountPanel = serverActive && admin ? `<section class="account-manage-panel"><div class="section-line-heading"><div><strong>账号管理</strong><small>维护登录账号与登录状态；新账号初始密码为手机号后六位，首次登录强制修改密码</small></div><button type="button" data-new-account>新增账号</button></div><div class="account-manage-list" id="accountManageList">正在加载项目账号…</div></section>` : '';
-  return `<section class="management-panel"><div class="section-line-heading"><div><strong>项目管理人员</strong><small>账号职位决定任务自动匹配；姓名、职务、管理范围和电话可维护</small></div>${organizationAction}</div><div class="management-roster">${organization.length ? organization.map(person => `<article><div class="management-avatar">${escapeHtml(person.name.slice(0,1))}</div><div><strong>${escapeHtml(person.name)}</strong><span>${escapeHtml(person.role)}</span><p>${escapeHtml(person.scope || '待确认管理范围')}</p><a href="tel:${String(person.phone || '').replace(/\s/g,'')}">${escapeHtml(person.phone || '未登记电话')}</a></div></article>`).join('') : '<p class="resource-empty">尚未建立组织机构，请由项目经理在“账号管理”中新增人员。</p>'}</div></section>
-    <section class="workforce-panel"><div class="section-line-heading"><div><strong>现场班组与每日考勤</strong><small>现场人数以劳资员每日上传的实名制打卡情况表为准；核对补录仅在登记后 24 小时内开放</small></div><div><button type="button" data-attendance-history>查看往期考勤</button>${attendanceAction}<button type="button" data-team-allocation>班组调配</button></div></div><div class="card-collection workforce-cards"><article class="info-card"><h3>现场人员</h3><div class="big">${latest.actual} 人</div><p>${latest.date} 打卡 · 计划投入 ${latest.planned} 人</p><div class="mini-bar"><i style="width:${Math.min(100,ratio)}%"></i></div></article><article class="info-card"><h3>饱和班组</h3><div class="big">8 / 12</div><p>木工班组存在缺员，建议协调补充</p><div class="mini-bar"><i style="width:67%"></i></div></article><article class="info-card"><h3>人均有效工时</h3><div class="big">7.2 h</div><p>较上周提升 0.4 小时</p><div class="mini-bar"><i style="width:82%"></i></div></article></div><div class="attendance-history"><div><strong>最近考勤登记</strong><button type="button" data-attendance-history>全部 ${attendanceRecords.length} 天</button></div>${attendanceRecords.length ? attendanceRecords.slice(0,5).map(record => { const windowState = attendanceSupplementWindow(record); return `<div class="attendance-history-entry"><button type="button" data-attendance-record="${record.id}"><b>${record.date}</b><span>${record.actual} / ${record.planned} 人 · ${escapeHtml(record.officer)}</span><em>${escapeHtml(record.note || '考勤纪律正常')}</em><i>查看详情</i></button>${supplementAction(record)}</div>`; }).join('') : '<p class="resource-empty">暂无考勤记录，请劳资员上传每日实名制打卡表。</p>'}</div></section>${accountPanel}`;
+  return `<section class="management-panel"><div class="section-line-heading"><div><strong>项目管理人员</strong><small>账号职位决定任务自动匹配；姓名、职务、管理范围和电话可维护</small></div>${organizationAction}</div><div class="management-roster">${organization.length ? organization.map(person => `<article><div class="management-avatar">${escapeHtml(person.name.slice(0,1))}</div><div><strong>${escapeHtml(person.name)}</strong><span>${escapeHtml(person.role)}</span><p>${escapeHtml(person.scope || '待确认管理范围')}</p><a href="tel:${String(person.phone || '').replace(/\s/g,'')}">${escapeHtml(person.phone || '未登记电话')}</a></div></article>`).join('') : '<p class="resource-empty">尚未建立组织机构，请由项目经理在“账号管理”中新增人员。</p>'}</div></section>${accountPanel}`;
+}
+
+function renderLaborersBody() {
+  const latest = [...attendanceRecords].sort((a,b) => b.date.localeCompare(a.date))[0] || { actual: 0, planned: 0, date: '未登记' };
+  const ratio = latest.planned ? Math.round(latest.actual / latest.planned * 100) : 0;
+  const serverActive = Boolean(window.ZhuxuServer?.active);
+  const role = String(getCurrentUser()?.role || '');
+  const manager = serverActive ? /(劳资员|项目经理)/.test(role) : true;
+  const attendanceAction = manager ? `<button type="button" data-attendance>上传考勤表</button>` : '';
+  const supplementAction = record => manager ? `<button type="button" class="attendance-supplement-action ${attendanceSupplementWindow(record).allowed ? '' : 'expired'}" data-supplement-attendance="${record.id}" ${attendanceSupplementWindow(record).allowed ? '' : 'disabled'}>${attendanceSupplementLabel(record)}</button>` : '';
+  const onSite = laborers.filter(item => item.status !== '退场').length;
+  const matchedWorkers = attendanceRecords.flatMap(record => record.workers || []).filter(worker => worker.matched).length;
+  const onSiteTeams = new Set(laborers.filter(item => item.status !== '退场').map(item => item.team).filter(Boolean)).size;
+  return `<section class="management-panel"><div class="section-line-heading"><div><strong>民工花名册</strong><small>劳资员维护实名制民工信息；考勤表上传后按姓名自动匹配花名册，未匹配人员请补充登记</small></div>${manager ? '<button type="button" data-new-laborer>＋ 登记民工</button>' : ''}</div><div class="laborer-summary"><article><span>在场民工</span><strong>${onSite}</strong><small>共 ${laborers.length} 人登记</small></article><article><span>今日打卡</span><strong>${latest.actual}</strong><small>计划 ${latest.planned} 人</small></article><article><span>已匹配实名制</span><strong>${matchedWorkers}</strong><small>累计考勤明细匹配人次</small></article></div>${laborers.length ? `<div class="laborer-table"><div class="laborer-row header"><span>姓名</span><span>工种</span><span>班组</span><span>电话</span><span>进场日期</span><span>状态</span><span>操作</span></div>${laborers.map(laborer => `<div class="laborer-row"><span><b>${escapeHtml(laborer.name)}</b></span><span>${escapeHtml(laborer.trade || '—')}</span><span>${escapeHtml(laborer.team || '—')}</span><span>${escapeHtml(laborer.phone || '—')}</span><span>${escapeHtml(laborer.entryDate || '—')}</span><span><em class="material-batch-status ${laborer.status === '退场' ? 'failed' : 'done'}">${escapeHtml(laborer.status || '在场')}</em></span><button type="button" class="edit-action" data-edit-laborer="${laborer.id}">编辑</button></div>`).join('')}</div>` : '<p class="resource-empty">尚未登记民工。请劳资员登记花名册，或在“组织架构”中由项目经理配置劳资员账号。</p>'}</section>
+  <section class="workforce-panel"><div class="section-line-heading"><div><strong>每日考勤</strong><small>现场人数以劳资员每日上传的实名制打卡情况表为准；核对补录仅在登记后 24 小时内开放</small></div><div><button type="button" data-attendance-history>查看往期考勤</button>${attendanceAction}</div></div><div class="card-collection workforce-cards"><article class="info-card"><h3>现场人员</h3><div class="big">${latest.actual} 人</div><p>${latest.date} 打卡 · 计划投入 ${latest.planned} 人</p><div class="mini-bar"><i style="width:${Math.min(100,ratio)}%"></i></div></article><article class="info-card"><h3>在场班组</h3><div class="big">${onSiteTeams || '—'}</div><p>花名册登记的在场班组数</p><div class="mini-bar"><i style="width:60%"></i></div></article><article class="info-card"><h3>实名匹配</h3><div class="big">${matchedWorkers}</div><p>累计考勤明细与花名册匹配人次</p><div class="mini-bar"><i style="width:70%"></i></div></article></div><div class="attendance-history"><div><strong>最近考勤登记</strong><button type="button" data-attendance-history>全部 ${attendanceRecords.length} 天</button></div>${attendanceRecords.length ? attendanceRecords.slice(0,5).map(record => { const windowState = attendanceSupplementWindow(record); return `<div class="attendance-history-entry"><button type="button" data-attendance-record="${record.id}"><b>${record.date}</b><span>${record.actual} / ${record.planned} 人 · ${escapeHtml(record.officer)}</span><em>${escapeHtml(record.note || '考勤纪律正常')}</em><i>查看详情</i></button>${supplementAction(record)}</div>`; }).join('') : '<p class="resource-empty">暂无考勤记录，请劳资员上传每日实名制打卡表。</p>'}</div></section>`;
 }
 
 function openAttendanceDialog() {
@@ -2318,6 +2331,22 @@ function openAttendanceDialog() {
   form.elements.date.value = new Date().toISOString().slice(0,10);
   form.elements.actual.value = latest?.actual || 0; form.elements.planned.value = latest?.planned || 0;
   $('#attendanceDialog').showModal();
+}
+
+function openLaborerDialog(laborer = null) {
+  if (window.ZhuxuServer?.active && !/(劳资员|项目经理)/.test(String(getCurrentUser()?.role || ''))) { showToast('仅劳资员或项目经理可维护民工花名册'); return; }
+  const form = $('#laborerForm');
+  form.reset();
+  editingLaborerId = laborer?.id || null;
+  form.elements.laborerId.value = laborer?.id || '';
+  form.elements.name.value = laborer?.name || '';
+  form.elements.trade.value = laborer?.trade || '';
+  form.elements.team.value = laborer?.team || '';
+  form.elements.phone.value = laborer?.phone || '';
+  form.elements.entryDate.value = laborer?.entryDate || dailyDateKey;
+  form.elements.status.value = laborer?.status || '在场';
+  $('#laborerDialogTitle').textContent = laborer ? '编辑民工信息' : '登记民工';
+  $('#laborerDialog').showModal();
 }
 
 function renderAttendanceHistory(selectedId = null) {
@@ -2630,8 +2659,8 @@ function openWorkersDetail(taskId) {
   const workers = attendance?.workers || [];
   $('#workersDialogTitle').textContent = `${task?.title || '施工任务'} · ${team}`;
   $('#workersBody').innerHTML = workers.length
-    ? `<div class="workers-table"><div class="workers-row header"><span>姓名</span><span>工种</span><span>上班打卡</span><span>下班打卡</span></div>${workers.map(worker => `<div class="workers-row"><span>${escapeHtml(worker.name)}</span><span>${escapeHtml(worker.trade || '—')}</span><span>${escapeHtml(worker.checkIn || '—')}</span><span>${escapeHtml(worker.checkOut || '—')}</span></div>`).join('')}</div><p class="workers-note">以上为劳资员 ${escapeHtml(attendance?.officer || '未登记')} 于 ${activeExecutionDate} 上传的实名制打卡记录，共 ${workers.length} 人。</p>`
-    : '<div class="resource-empty">该日考勤尚未解析出人员明细。请劳资员上传包含“姓名、工种、上班/下班时间”列的 Excel 打卡表，系统会自动提取并在这里展示。</div>';
+    ? `<div class="workers-table"><div class="workers-row header"><span>姓名</span><span>工种</span><span>上班打卡</span><span>下班打卡</span><span>花名册匹配</span></div>${workers.map(worker => `<div class="workers-row"><span>${escapeHtml(worker.name)}</span><span>${escapeHtml(worker.trade || '—')}</span><span>${escapeHtml(worker.checkIn || '—')}</span><span>${escapeHtml(worker.checkOut || '—')}</span><span><em class="material-batch-status ${worker.matched ? 'done' : 'testing'}">${worker.matched ? '已匹配' : '未登记'}</em></span></div>`).join('')}</div><p class="workers-note">以上为劳资员 ${escapeHtml(attendance?.officer || '未登记')} 于 ${activeExecutionDate} 上传的实名制打卡记录，共 ${workers.length} 人；未匹配人员请到“民工管理 → 民工花名册”补充登记。</p>`
+    : '<div class="resource-empty">该日考勤尚未解析出人员明细。请劳资员上传包含“姓名、工种、上班/下班时间”列的 Excel 打卡表，系统会自动提取并与花名册匹配。</div>';
   $('#workersDialog').showModal();
 }
 
@@ -2758,6 +2787,8 @@ function renderSubview(id) {
     body = renderQualityBody();
   } else if (config.content === 'team') {
     body = renderTeamBody();
+  } else if (config.content === 'laborers') {
+    body = renderLaborersBody();
   } else if (config.content === 'timeline') {
     body = `<div class="timeline-panel"><div class="timeline-header"><span>关键工作</span>${['8/7','8/8','8/9','8/10','8/11','8/12','8/13','8/14'].map(d=>`<span>${d}</span>`).join('')}</div>
       ${[['3#楼 8F 主体结构',0,38,''],['2#楼 11F 主体结构',13,48,''],['地下室桥架安装',25,50,''],['3#楼二次结构',50,37,'risk']].map(row=>`<div class="gantt-row"><strong>${row[0]}</strong><div class="gantt-track"><i class="gantt-bar ${row[3]}" style="left:${row[1]}%;width:${row[2]}%"></i></div></div>`).join('')}</div>`;
@@ -2785,6 +2816,7 @@ function renderSubview(id) {
     else if (id === 'documents') openDocumentGate(null, activeDocumentChain);
     else if (id === 'quality') activeQualityFilter === 'safety' ? openInspectionBatchDialog() : openQualityCheckDialog();
     else if (id === 'team') { renderOrganization(); $('#organizationDialog').showModal(); }
+    else if (id === 'laborers') openLaborerDialog();
     else showToast(`${config.action}功能已进入待办，可在下一版接入业务数据`);
   });
   $$('[data-plan-level]', container).forEach(button => button.addEventListener('click', () => { activePlanLevel = button.dataset.planLevel; renderSubview('schedule'); }));
@@ -2847,6 +2879,8 @@ function renderSubview(id) {
   $$('[data-attendance-record]', container).forEach(button => button.addEventListener('click', () => openAttendanceHistory(button.dataset.attendanceRecord)));
   $$('[data-supplement-attendance]', container).forEach(button => button.addEventListener('click', () => openAttendanceSupplement(button.dataset.supplementAttendance)));
   $('[data-team-allocation]', container)?.addEventListener('click', () => showToast('班组调配已进入下一行，可结合今日考勤人数调整班组投入'));
+  $('[data-new-laborer]', container)?.addEventListener('click', () => openLaborerDialog());
+  $$('[data-edit-laborer]', container).forEach(button => button.addEventListener('click', () => openLaborerDialog(laborers.find(item => Number(item.id) === Number(button.dataset.editLaborer)))));
   $('[data-new-account]', container)?.addEventListener('click', () => openAccountDialog());
   if (id === 'team') loadAccounts();
   $$('[data-remind-followup]', container).forEach(button => button.addEventListener('click', () => {
@@ -3650,10 +3684,16 @@ function initializeApp() {
     let workers = [];
     const attendanceFile = form.elements.attendanceFile.files[0];
     if (attendanceFile && /\.(xlsx|xls)$/i.test(attendanceFile.name)) workers = await extractAttendanceWorkers(attendanceFile);
+    workers = workers.map(worker => {
+      const match = laborers.find(laborer => laborer.name === worker.name);
+      return match ? { ...worker, matched: true, laborerId: match.id } : { ...worker, matched: false };
+    });
+    const matchedCount = workers.filter(worker => worker.matched).length;
     attendanceRecords.unshift({ id: Date.now(), date: data.get('date'), registeredAt: new Date().toISOString(), actual: Number(data.get('actual')), planned: Number(data.get('planned')), officer: data.get('officer'), note: data.get('note'), supplements: [], attachment, workers });
     attendanceRecords.sort((a,b) => b.date.localeCompare(a.date)); persistAttendance(); form.reset(); $('#attendanceDialog').close();
+    if ($('#laborers').classList.contains('active')) renderSubview('laborers');
     if ($('#team').classList.contains('active')) renderSubview('team');
-    showToast(workers.length ? `考勤表已保存，已提取 ${workers.length} 名人员打卡明细` : '考勤表已保存，现场人数已按打卡数据更新');
+    showToast(workers.length ? `考勤表已保存，提取 ${workers.length} 人，其中 ${matchedCount} 人匹配花名册` : '考勤表已保存，现场人数已按打卡数据更新');
   });
 
   $('#attendanceSupplementForm').addEventListener('submit', async event => {
@@ -3694,6 +3734,18 @@ function initializeApp() {
     persistWeatherConfig(); $('#weatherSettingDialog').close();
     if ($('#schedule').classList.contains('active')) renderSubview('schedule');
     showToast('晴雨表地点已更新，正在刷新天气');
+  });
+  $('#laborerForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const form = event.currentTarget; const data = new FormData(form);
+    const name = String(data.get('name') || '').trim();
+    if (!name) { showToast('请填写民工姓名'); return; }
+    const payload = { name, trade: String(data.get('trade') || '').trim(), team: String(data.get('team') || '').trim(), phone: String(data.get('phone') || '').trim(), entryDate: data.get('entryDate'), status: data.get('status') };
+    if (editingLaborerId) laborers = laborers.map(item => Number(item.id) === Number(editingLaborerId) ? { ...item, ...payload } : item);
+    else laborers.unshift({ id: Date.now(), ...payload });
+    persistLaborers(); editingLaborerId = null; form.reset(); $('#laborerDialog').close();
+    if ($('#laborers').classList.contains('active')) renderSubview('laborers');
+    showToast('民工花名册已更新，考勤表上传后将自动匹配');
   });
   $('#planForm').addEventListener('submit', event => {
     event.preventDefault();
