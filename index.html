@@ -89,17 +89,15 @@
       </div>
 
       <nav class="nav-list">
-        <button class="nav-item active" data-view="intake"><span class="nav-icon">☷</span><span>每日任务执行</span><b class="warn" id="dailyBadge">0</b></button>
         <button class="nav-item" data-view="schedule"><span class="nav-icon">▦</span><span>进度计划</span></button>
+        <button class="nav-item active" data-view="intake"><span class="nav-icon">☷</span><span>每日任务执行</span><b class="warn" id="dailyBadge">0</b></button>
         <button class="nav-item" data-view="technical"><span class="nav-icon">▧</span><span>技术文件</span><b id="technicalBadge">4</b></button>
         <button class="nav-item" data-view="cost"><span class="nav-icon">¥</span><span>成控文件</span><b id="costBadge">3</b></button>
-        <button class="nav-item" data-view="tasks"><span class="nav-icon">✓</span><span>任务协同</span><b id="taskBadge">6</b></button>
         <button class="nav-item" data-view="followups"><span class="nav-icon">↻</span><span>协作催办</span><b class="warn" id="followupBadge">3</b></button>
         <button class="nav-item" data-view="materials"><span class="nav-icon">◇</span><span>材料设备</span></button>
-        <button class="nav-item" data-view="documents"><span class="nav-icon">▤</span><span>资料闭环</span><b class="warn" id="documentBadge">2</b></button>
+        <button class="nav-item" data-view="documents"><span class="nav-icon">▤</span><span>资料完成情况</span><b class="warn" id="documentBadge">2</b></button>
         <button class="nav-item" data-view="quality"><span class="nav-icon">◎</span><span>质量安全</span><b class="warn">3</b></button>
         <button class="nav-item" data-view="team"><span class="nav-icon">♙</span><span>组织架构</span></button>
-        <button class="nav-item" data-view="analytics"><span class="nav-icon">↗</span><span>效率分析</span></button>
       </nav>
 
       <div class="site-weather">
@@ -297,7 +295,7 @@
       <div class="dialog-heading"><div><span>线上技术交底</span><h2 id="technicalNoticeTitle">设计变更与重点提醒</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
       <input type="hidden" id="technicalNoticeTaskId">
       <div id="technicalNoticeBody" class="technical-notice-body"></div>
-      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>稍后确认</button><button type="button" class="primary-button" id="acknowledgeTechnicalNotice">已阅读并确认</button></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" id="addTechnicalNotice">＋ 添加变更/指令单</button><button type="button" class="secondary-button" data-close-dialog>稍后确认</button><button type="button" class="primary-button" id="acknowledgeTechnicalNotice">已阅读并确认</button></div>
     </form>
   </dialog>
 

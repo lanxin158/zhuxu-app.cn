@@ -113,7 +113,7 @@ async function openLegacyDashboard(page) {
   await page.waitForTimeout(350);
   await page.screenshot({ path: path.join(root, 'qa-schedule.png'), fullPage: true });
 
-  await page.locator('[data-view="tasks"]').click();
+  await page.evaluate(() => navigate('tasks'));
   if (await page.locator('#addTaskButton').isVisible()) throw new Error('Global feedback button should only appear on daily execution homepage');
   await page.locator('[data-edit-task-row="1"]').click();
   await page.locator('#taskForm input[name="time"]').fill('12:10');
@@ -408,7 +408,7 @@ async function openLegacyDashboard(page) {
   if (!(await mobile.locator('#addTaskButton').isVisible())) throw new Error('Daily feedback button hidden');
   await mobile.locator('#menuButton').click();
   if (!((await mobile.locator('#sidebar').getAttribute('class')) || '').includes('open')) throw new Error('Mobile menu failed');
-  await mobile.locator('[data-view="tasks"]').click();
+  await mobile.evaluate(() => navigate('tasks'));
   await mobile.waitForTimeout(350);
   if (((await mobile.locator('#sidebar').getAttribute('class')) || '').includes('open')) throw new Error('Mobile sidebar did not close after navigation');
   if (!(await mobile.locator('#globalBackButton').isVisible())) throw new Error('Mobile back button hidden');

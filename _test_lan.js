@@ -145,8 +145,7 @@ async function apiPutRaw(page, path, body) {
   if (await pm.evaluate(() => organization.length) !== newPeople.length + 1) throw new Error('PM organization was not refreshed after account creation');
 
   // —— 业务闭环（任务 / 计划 / 技术文件 / 成控 / 采集）——
-  await pm.locator('[data-view="tasks"]').click();
-  await pm.locator('#tasks .subview-action').click();
+  await pm.evaluate(() => openTaskDialog());
   await pm.locator('#taskForm input[name="title"]').fill('局域网多人协同测试任务');
   await pm.locator('#taskForm input[name="owner"]').fill('吴晨 · 施工员');
   await pm.locator('#taskForm input[name="creator"]').fill('王经理 · 项目经理');
@@ -313,8 +312,7 @@ async function apiPutRaw(page, path, body) {
   builder.on('pageerror', error => errors.push(`Builder: ${error.message}`));
   await loginInitial(builder, 'builder', projectAId);
   await changePassword(builder, 'builder');
-  await builder.locator('[data-view="tasks"]').click();
-  if (!(await builder.locator('#tasks').getByText('局域网多人协同测试任务').first().isVisible())) throw new Error('Task created by PM was not shared with builder');
+  if (!(await builder.evaluate(() => tasks.some(task => task.title === '局域网多人协同测试任务')))) throw new Error('Task created by PM was not shared with builder');
   await builder.locator('[data-view="intake"]').click();
   if (!(await builder.evaluate(() => intakeRecords.some(item => item.title === '局域网共享现场信息')))) throw new Error('Information collection record was not shared with builder');
   await builder.locator('[data-view="technical"]').click();

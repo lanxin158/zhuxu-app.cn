@@ -1068,13 +1068,12 @@ function updateMetrics() {
   $('#completionMetric').innerHTML = `${percent}<small>%</small>`;
   $('#completionText').textContent = `已完成 ${done} 项，进行中 ${doing} 项`;
   $('#taskTotal').textContent = `${tasks.length} 项`;
-  $('#taskBadge').textContent = tasks.filter(t => t.status !== 'done').length;
   $('#completionSegments').innerHTML = tasks.map(t => `<i class="${t.status}"></i>`).join('');
 }
 
 const subviews = {
-  intake: { title: '每日任务执行中心', desc: '把日计划落实到管理人员和班组，同时跟踪技术、材料、资料、质量安全及需协调事项', action: '记录施工反馈', content: 'intake' },
   schedule: { title: '进度计划', desc: '总计划逐级分解到月、周和每日执行事项', action: '新建计划', content: 'schedule' },
+  intake: { title: '每日任务执行中心', desc: '把日计划落实到管理人员和班组，同时跟踪技术、材料、资料、质量安全及需协调事项', action: '记录施工反馈', content: 'intake' },
   technical: { title: '技术文件', desc: '图纸、设计变更、联系函和指令单统一共享，关联任务后完成线上交底', action: '上传技术文件', content: 'technical' },
   cost: { title: '成控文件', desc: '合同、经济核定单和现场工程量确认单统一归档，形成过程成本依据', action: '新增成控文件', content: 'cost' },
   tasks: { title: '任务协同', desc: '把每项工作落实到区域、人员和完成标准', action: '新建任务', content: 'table' },
@@ -1082,8 +1081,7 @@ const subviews = {
   materials: { title: '材料与设备', desc: '材料、设备分别建账，并用资源计划提前暴露供需缺口', action: '登记资源', content: 'resources' },
   documents: { title: '资料完成情况', desc: '让材料、送检、验收资料成为施工进度的放行条件', action: '登记资料结果', content: 'documents' },
   quality: { title: '质量安全', desc: '问题发现、整改、复验全程留痕', action: '新增检查', content: 'quality' },
-  team: { title: '组织架构', desc: '明确项目管理人员职责，并用每日实名制考勤掌握现场投入', action: '编辑管理人员', content: 'team' },
-  analytics: { title: '效率分析', desc: '从工时、等待和返工中寻找改进空间', action: '导出报告', content: 'analytics' }
+  team: { title: '组织架构', desc: '明确项目管理人员职责，并用每日实名制考勤掌握现场投入', action: '编辑管理人员', content: 'team' }
 };
 
 function renderFollowupsBody() {
@@ -1250,9 +1248,10 @@ function renderTechnicalDocumentsBody() {
     ${activeTechnicalFilter === 'drawing' && activeTechnicalBuilding === 'all' ? '' : `<section class="technical-file-register"><div class="technical-file-row header"><span>类别 / 编号</span><span>文件名称与适用范围</span><span>发布人</span><span>发布日期</span><span>原文件</span><span>操作</span></div>${visible.map(item => `<button type="button" class="technical-file-row" data-technical-document="${item.id}"><span><i class="${item.type}">${technicalTypeLabels[item.type]?.slice(0,1) || '技'}</i><b>${escapeHtml(technicalTypeLabels[item.type] || item.type)}${item.profession ? ` · ${escapeHtml(item.profession)}` : ''}</b><small>${escapeHtml(item.code)}</small></span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(technicalBuildingName(item))}${item.profession ? ` · ${escapeHtml(item.profession)}` : ''} · ${escapeHtml(item.scope)}</small></span><span>${escapeHtml(item.issuedBy)}</span><span>${escapeHtml(item.issuedAt)}</span><span>${(item.files || []).length} 个附件</span><em>${item.type === 'drawing' ? '打开图纸' : '查看内容'} →</em></button>`).join('') || '<div class="resource-empty">当前类别还没有技术文件，点击右上角上传；施工图纸可通过“上传图纸文件夹”批量归档。</div>'}</section>`}`;
 }
 
-function openTechnicalDocumentDialog() {
+function openTechnicalDocumentDialog(type = '') {
   const form = $('#technicalDocumentForm');
   form.reset();
+  if (type) form.elements.type.value = type;
   form.elements.issuedBy.value = matchPersonByRole('技术负责人');
   form.elements.issuedAt.value = dailyDateKey;
   $('#professionField').hidden = form.elements.type.value !== 'drawing';
@@ -1976,7 +1975,6 @@ function renderQualityBody() {
   }).join('');
   return `<div class="quality-summary-grid">
     <button type="button" class="info-card interactive ${activeQualityFilter === 'pending' ? 'active' : ''}" data-quality-filter="pending"><h3>待整改</h3><div class="big">${pending.length} 项</div><p>其中 ${pending.filter(item => item.critical).length} 项影响关键节点 · 点击查看内容</p><div class="mini-bar"><i style="width:${Math.min(100, pending.length / Math.max(qualityItems.length,1) * 100)}%"></i></div></button>
-    <button type="button" class="info-card interactive"><h3>一次验收通过率</h3><div class="big">93.6%</div><p>较上月提升 2.4%，质量问题闭环留痕</p><div class="mini-bar"><i style="width:94%"></i></div></button>
     <button type="button" class="info-card interactive ${activeQualityFilter === 'safety' ? 'active' : ''}" data-quality-filter="safety"><h3>安全巡检</h3><div class="big">${safetyInspections.length} 次</div><p>${openInspectionIssues} 项问题待逐一闭环 · 点击查看巡检批次</p><div class="mini-bar"><i style="width:${Math.max(15, Math.round((1 - openInspectionIssues / Math.max(1, safetyInspections.reduce((sum,item)=>sum+item.issues.length,0))) * 100))}%"></i></div></button>
   </div><section class="quality-list-panel"><div class="quality-list-heading"><div><strong>${activeQualityFilter === 'pending' ? '待整改内容' : activeQualityFilter === 'safety' ? '安全巡检记录' : '全部质量检查记录'}</strong><small>${activeQualityFilter === 'safety' ? '每次巡检为一条主记录，统一回复下逐项记录整改内容与前后照片' : '检查记录、整改前后照片及复验结果均可编辑查看'}</small></div><div><button type="button" data-quality-filter="all">查看质量检查</button>${activeQualityFilter === 'safety' ? '<button type="button" data-new-inspection>新增巡检</button>' : ''}</div></div><div class="quality-check-list">${activeQualityFilter === 'safety' ? inspectionRows : qualityRows}${(!activeQualityFilter || activeQualityFilter === 'all') && !qualityRows ? '<div class="resource-empty">暂无质量检查记录</div>' : ''}${activeQualityFilter === 'safety' && !inspectionRows ? '<div class="resource-empty">暂无安全巡检记录</div>' : ''}</div></section>`;
 }
@@ -2382,6 +2380,7 @@ function openTechnicalNotice(taskId) {
   const record = getDailyExecutionRecord(taskId); const notice = record.technicalNotice;
   const task = tasks.find(item => Number(item.id) === Number(taskId));
   $('#technicalNoticeTaskId').value = taskId;
+  $('#addTechnicalNotice').onclick = () => { $('#technicalNoticeDialog').close(); openTechnicalDocumentDialog('change'); };
   if (!notice) {
     $('#technicalNoticeTitle').textContent = '常规施工 · 技术交底';
     $('#technicalNoticeBody').innerHTML = `<div class="technical-notice-mark"><span>技术交底</span><strong>无新增变更或指令</strong></div><h3>${escapeHtml(task?.title || '施工任务')}</h3><p>该任务当前没有设计变更或施工指令，按原施工方案和技术交底执行；如需补充交底要求，请在“技术文件”中登记。</p><dl><div><dt>关联任务</dt><dd>${escapeHtml(task?.title || '')}</dd></div><div><dt>责任班组</dt><dd>${escapeHtml(record.team || '待安排')}</dd></div><div><dt>当前状态</dt><dd>常规施工</dd></div></dl>`;
