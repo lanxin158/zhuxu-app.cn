@@ -1,6 +1,6 @@
 {
   "name": "zhuxu-construction-efficiency",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "筑序施工效率驾驶舱本地与局域网演示版",
   "type": "commonjs",

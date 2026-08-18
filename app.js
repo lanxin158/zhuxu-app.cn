@@ -3071,11 +3071,11 @@ function initializeApp() {
   populateLoginProjects();
   navigate('intake');
   if (window.ZhuxuServer?.active) {
-    $('.login-version').textContent = '筑序 v1.0 · 项目局域网多人版';
+    $('.login-version').textContent = '筑序 v1.1 · 项目局域网多人版';
     $('.sync-state span').textContent = authenticatedUserId ? '局域网数据已连接' : '等待登录服务器';
     if (authenticatedUserId) syncAllLocalState();
   } else {
-    $('.login-version').textContent = '筑序 v1.0 · 本机离线演示版';
+    $('.login-version').textContent = '筑序 v1.1 · 本机离线演示版';
   }
   if ($('#projectButtonName')) $('#projectButtonName').textContent = currentProject.name;
 
