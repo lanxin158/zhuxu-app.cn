@@ -357,6 +357,7 @@ let editingTaskId = null;
 let editingPlanId = null;
 let editingIntakeId = null;
 let planRecognitionCandidates = [];
+let planAttachmentsDraft = [];
 let taskRecognitionCandidates = [];
 let selectedPhotos = [];
 let pendingTaskTransition = null;
@@ -1119,7 +1120,7 @@ function renderPlanRow(plan, groupedDay = false) {
   } else {
     metaColumns = `<span>${escapeHtml(plan.start)}</span><span>${escapeHtml(plan.end)}</span><span>${escapeHtml(plan.ownerRole || '待明确')}</span>`;
   }
-  return `<article class="plan-row${isDay ? ' day-plan-row' : ''}${isWeek ? ' week-plan-row' : ''}"><div><strong>${escapeHtml(plan.title)}</strong><small>来源：${escapeHtml(plan.source || '手工新建')}${parent ? ` · 所属周计划：${escapeHtml(parent.title)}` : ''}</small></div>${metaColumns}<button class="edit-action" data-edit-plan="${plan.id}">编辑计划</button></article>`;
+  return `<article class="plan-row${isDay ? ' day-plan-row' : ''}${isWeek ? ' week-plan-row' : ''}"><div><strong>${escapeHtml(plan.title)}</strong><small>来源：${escapeHtml(plan.source || '手工新建')}${parent ? ` · 所属周计划：${escapeHtml(parent.title)}` : ''}</small></div>${metaColumns}<div class="plan-row-actions">${(plan.attachments || []).length ? `<button class="view-action" data-plan-attachment="${plan.id}">查看计划表</button>` : ''}<button class="edit-action" data-edit-plan="${plan.id}">编辑计划</button></div></article>`;
 }
 
 function formatDailyPlanGroupLabel(dateKey) {
@@ -1187,7 +1188,9 @@ function openPlanDialog(plan = null) {
   if (unconfirmedToday) showToast(`提醒：今日还有 ${unconfirmedToday} 项计划未完成人工确认或修改，请先在每日任务执行中确认`);
   editingPlanId = plan?.id || null;
   planRecognitionCandidates = [];
+  planAttachmentsDraft = [...(plan?.attachments || [])];
   renderPlanRecognitionCandidates();
+  renderPlanAttachmentList();
   setPlanMode('manual');
   form.elements.level.value = plan?.level || activePlanLevel;
   form.elements.title.value = plan?.title || '';
@@ -1776,6 +1779,57 @@ function renderPlanRecognitionCandidates() {
   $$('[data-remove-plan-candidate]').forEach(button => button.addEventListener('click', () => { planRecognitionCandidates.splice(Number(button.dataset.removePlanCandidate), 1); renderPlanRecognitionCandidates(); }));
 }
 
+function renderPlanAttachmentList() {
+  const list = $('#planAttachmentList');
+  if (!list) return;
+  if (!planAttachmentsDraft.length) { list.innerHTML = '<p class="plan-attachment-empty">尚未添加计划表原文件</p>'; return; }
+  list.innerHTML = planAttachmentsDraft.map((file, index) => `<div class="plan-attachment-item"><i>${attachmentKind(file) === 'image' ? 'IMG' : attachmentKind(file) === 'pdf' ? 'PDF' : 'FILE'}</i><span><b>${escapeHtml(file.name)}</b><small>${file.stored ? formatAttachmentSize(file.size) : '待上传'}</small></span><button type="button" data-remove-plan-attachment="${index}" aria-label="移除附件">×</button></div>`).join('');
+  $$('[data-remove-plan-attachment]', list).forEach(button => button.addEventListener('click', () => { planAttachmentsDraft.splice(Number(button.dataset.removePlanAttachment), 1); renderPlanAttachmentList(); }));
+}
+
+function attachDropzoneHandlers(root = document) {
+  $$('[data-dropzone]', root).forEach(dropzone => {
+    if (dropzone.dataset.dropzoneBound) return;
+    dropzone.dataset.dropzoneBound = '1';
+    const input = dropzone.querySelector('input[type="file"]') || document.getElementById(dropzone.dataset.for);
+    if (!input) return;
+    ['dragenter', 'dragover'].forEach(type => dropzone.addEventListener(type, event => { event.preventDefault(); event.stopPropagation(); dropzone.classList.add('dragover'); }));
+    ['dragleave', 'drop'].forEach(type => dropzone.addEventListener(type, event => { event.preventDefault(); event.stopPropagation(); dropzone.classList.remove('dragover'); }));
+    dropzone.addEventListener('drop', event => {
+      const files = [...(event.dataTransfer?.files || [])];
+      if (!files.length) return;
+      try {
+        const transfer = new DataTransfer();
+        files.forEach(file => transfer.items.add(file));
+        input.files = transfer.files;
+      } catch (error) { /* 旧浏览器不支持 DataTransfer 构造器时忽略 */ }
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  });
+}
+
+function enhanceNativeFileUploads(root = document) {
+  $$('input[type="file"]', root).forEach(input => {
+    if (input.dataset.nativeDropBound || input.closest('[data-dropzone]')) return;
+    input.dataset.nativeDropBound = '1';
+    const label = input.closest('label');
+    if (!label) return;
+    label.classList.add('native-file-dropzone');
+    ['dragenter', 'dragover'].forEach(type => label.addEventListener(type, event => { event.preventDefault(); event.stopPropagation(); label.classList.add('dragover'); }));
+    ['dragleave', 'drop'].forEach(type => label.addEventListener(type, event => { event.preventDefault(); event.stopPropagation(); label.classList.remove('dragover'); }));
+    label.addEventListener('drop', event => {
+      const files = [...(event.dataTransfer?.files || [])];
+      if (!files.length) return;
+      try {
+        const transfer = new DataTransfer();
+        files.forEach(file => transfer.items.add(file));
+        input.files = transfer.files;
+      } catch (error) { return; }
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  });
+}
+
 function renderTaskRecognitionCandidates() {
   $('#taskRecognitionCandidates').innerHTML = taskRecognitionCandidates.map((candidate, index) => `<div class="candidate-row" data-task-candidate="${index}"><input value="${escapeHtml(candidate.title)}" aria-label="识别任务 ${index + 1}"><button type="button" data-remove-task-candidate="${index}">移除</button><div class="candidate-meta"><span>匹配：${candidate.role}</span><span>${candidate.owner}</span><button type="button" data-adopt-task="${index}">载入编辑</button></div></div>`).join('');
   $$('[data-task-candidate] > input').forEach(input => input.addEventListener('input', () => { const row = input.closest('[data-task-candidate]'); const candidate = taskRecognitionCandidates[Number(row.dataset.taskCandidate)]; candidate.title = input.value; Object.assign(candidate, matchResponsible(input.value)); const spans = row.querySelectorAll('.candidate-meta span'); spans[0].textContent = `匹配：${candidate.role}`; spans[1].textContent = candidate.owner; }));
@@ -1787,6 +1841,8 @@ async function recognizePlanFile(file) {
   $('#planRecognitionState').className = 'recognition-state working';
   $('#planRecognitionState').textContent = `正在识别 ${file.name}…`;
   try {
+    const attachment = await prepareResourceAttachments([file]).then(list => list[0]);
+    if (attachment) { planAttachmentsDraft = planAttachmentsDraft.filter(item => item.name !== attachment.name); planAttachmentsDraft.push(attachment); renderPlanAttachmentList(); }
     const text = await extractFileText(file);
     const start = $('#planForm input[name="start"]').value || new Date().toISOString().slice(0,10);
     const end = $('#planForm input[name="end"]').value || new Date(Date.now() + 7 * 86400000).toISOString().slice(0,10);
@@ -1908,6 +1964,60 @@ function openConcealedAcceptanceDialog(item = null) {
   $('#concealedAcceptanceDialog').showModal();
 }
 
+function buildDocumentLedger() {
+  const rows = [];
+  Object.entries(documentState).forEach(([key, group]) => {
+    const entry = resourceEntries.find(item => Number(item.id) === Number(group.materialEntryId));
+    group.documents.forEach(doc => {
+      rows.push({
+        no: rows.length + 1,
+        category: `${documentChainConfigs[key]?.label || key}材料验收`,
+        name: doc.name,
+        location: [entry?.location, group.linkedProcess].filter(Boolean).join(' · ') || '未关联具体部位',
+        owner: resolveOrganizationOwner(doc.owner),
+        due: doc.due,
+        status: { pending: '待办理', testing: '检测中', done: '已完成', failed: '不合格' }[doc.status] || doc.status,
+        statusClass: doc.status
+      });
+    });
+  });
+  concealedAcceptances.forEach(item => {
+    const meta = concealedStatusMeta(item.status);
+    rows.push({
+      no: rows.length + 1,
+      category: '隐蔽验收',
+      name: item.title,
+      location: `${item.location} · ${item.processType}`,
+      owner: item.owner,
+      due: item.date,
+      status: meta.label,
+      statusClass: item.status
+    });
+  });
+  return rows;
+}
+
+function renderDocumentLedgerPanel() {
+  const rows = buildDocumentLedger();
+  return `<section class="document-list-panel document-ledger-panel">
+    <div class="document-panel-heading"><div><h2>资料台账（自动生成）</h2><p>系统根据材料验收资料和隐蔽验收记录自动汇总，共 ${rows.length} 条，可导出核对</p></div>${rows.length ? '<button type="button" data-export-ledger>导出台账 CSV</button>' : ''}</div>
+    ${rows.length ? `<div class="document-ledger-table"><div class="document-ledger-row header"><span>序号</span><span>资料名称</span><span>类别</span><span>关联部位 / 工序</span><span>责任人</span><span>完成时限</span><span>状态</span></div>${rows.map(row => `<div class="document-ledger-row"><span>${row.no}</span><span class="ledger-name">${escapeHtml(row.name)}</span><span>${escapeHtml(row.category)}</span><span>${escapeHtml(row.location)}</span><span>${escapeHtml(row.owner)}</span><span>${escapeHtml(row.due)}</span><span><em class="material-batch-status ${row.statusClass}">${escapeHtml(row.status)}</em></span></div>`).join('')}</div>` : '<div class="resource-empty">台账为空：登记材料进场或新增隐蔽验收后自动生成。</div>'}
+  </section>`;
+}
+
+function exportDocumentLedger() {
+  const rows = buildDocumentLedger();
+  if (!rows.length) { showToast('台账为空，暂无可导出内容'); return; }
+  const header = ['序号', '资料名称', '类别', '关联部位/工序', '责任人', '完成时限', '状态'];
+  const csv = '\uFEFF' + [header, ...rows.map(row => [row.no, row.name, row.category, row.location, row.owner, row.due, row.status].map(value => `"${String(value).replace(/"/g, '""')}"`).join(','))].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = `资料台账-${dailyDateKey}.csv`; document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast('资料台账已导出为 CSV');
+}
+
 function renderDocumentsBody() {
   if (!Object.keys(documentState).length) {
     return `<div class="document-overview">
@@ -1916,7 +2026,8 @@ function renderDocumentsBody() {
       <article class="document-kpi risk"><span>阻塞施工节点</span><strong>0<small>项</small></strong><p>当前无资料门禁阻塞</p></article>
     </div>
     <section class="document-list-panel"><div class="document-panel-heading"><div><h2>材料与施工资料链</h2><p>材料进场、送检、报告和使用部位形成可追溯放行关系</p></div><button type="button" class="secondary-button" data-jump-materials>进入材料设备</button></div><div class="resource-empty">尚未登记任何材料进场批次。资料链会在材料进场登记后自动生成，请先在“材料设备”中登记材料到场。</div></section>
-    <section class="document-list-panel concealed-acceptance-panel"><div class="document-panel-heading"><div><h2>施工过程隐蔽验收</h2><p>验收资料和现场照片共同形成工序放行依据</p></div><button type="button" data-new-concealed>＋ 新增隐蔽验收</button></div><div class="concealed-acceptance-list"><div class="resource-empty">还没有隐蔽验收记录</div></div></section>`;
+    <section class="document-list-panel concealed-acceptance-panel"><div class="document-panel-heading"><div><h2>施工过程隐蔽验收</h2><p>验收资料和现场照片共同形成工序放行依据</p></div><button type="button" data-new-concealed>＋ 新增隐蔽验收</button></div><div class="concealed-acceptance-list"><div class="resource-empty">还没有隐蔽验收记录</div></div></section>
+    ${renderDocumentLedgerPanel()}`;
   }
   const stats = getDocumentStats();
   const chain = documentState[activeDocumentChain];
@@ -1959,7 +2070,8 @@ function renderDocumentsBody() {
           return `<button type="button" class="concealed-acceptance-row" data-edit-concealed="${item.id}"><i class="${meta.className}">隐</i><div><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.processType)} · ${escapeHtml(item.location)} · ${item.date}</small><em>关联：${escapeHtml(item.linkedProcess)}</em></div><span>${escapeHtml(item.owner)}<small>${escapeHtml(item.witness)} 共同验收</small></span><span><b>${item.documentAttachments?.length || 0} 份资料</b><small>${item.photoAttachments?.length || 0} 张照片</small></span><span><em class="material-batch-status ${meta.className}">${meta.label}</em><small>${meta.gate}</small></span><b>查看 / 编辑</b></button>`;
         }).join('') || '<div class="resource-empty">还没有隐蔽验收记录</div>'}
       </div>
-    </section>`;
+    </section>
+    ${renderDocumentLedgerPanel()}`;
 }
 
 function renderQualityBody() {
@@ -2554,6 +2666,7 @@ function renderSubview(id) {
   $('[data-jump-quality]', container)?.addEventListener('click', () => navigate('quality'));
   $('[data-open-collection]', container)?.addEventListener('click', openIntakeDialog);
   $$('[data-edit-plan]', container).forEach(button => button.addEventListener('click', () => openPlanDialog(plans.find(plan => plan.id === Number(button.dataset.editPlan)))));
+  $$('[data-plan-attachment]', container).forEach(button => button.addEventListener('click', () => { const plan = plans.find(item => Number(item.id) === Number(button.dataset.planAttachment)); const file = plan?.attachments?.[0]; if (file) previewStoredAttachment(file); }));
   $$('[data-edit-task-row]', container).forEach(button => button.addEventListener('click', () => openTaskDialog(tasks.find(task => task.id === Number(button.dataset.editTaskRow)))));
   $$('[data-resource-tab]', container).forEach(button => button.addEventListener('click', () => { activeResourceTab = button.dataset.resourceTab; renderSubview('materials'); }));
   $('[data-register-resource]', container)?.addEventListener('click', button => openResourceEntryDialog(button.currentTarget.dataset.registerResource));
@@ -2567,6 +2680,7 @@ function renderSubview(id) {
   $$('[data-urge-document]', container).forEach(button => button.addEventListener('click', () => urgeDocument(button.dataset.urgeDocument, button.dataset.documentCategory)));
   $$('[data-edit-document]', container).forEach(button => button.addEventListener('click', () => openDocumentTaskDialog(button.dataset.documentCategory, button.dataset.editDocument)));
   $$('[data-edit-material-acceptance]', container).forEach(button => button.addEventListener('click', () => openMaterialAcceptanceDialog(button.dataset.editMaterialAcceptance)));
+  $('[data-export-ledger]', container)?.addEventListener('click', exportDocumentLedger);
   $('[data-new-concealed]', container)?.addEventListener('click', () => openConcealedAcceptanceDialog());
   $$('[data-edit-concealed]', container).forEach(button => button.addEventListener('click', () => openConcealedAcceptanceDialog(concealedAcceptances.find(item => Number(item.id) === Number(button.dataset.editConcealed)))));
   $$('[data-quality-filter]', container).forEach(button => button.addEventListener('click', () => { activeQualityFilter = button.dataset.qualityFilter; renderSubview('quality'); }));
@@ -2981,6 +3095,16 @@ function initializeApp() {
   $('#planForm input[name="start"]').addEventListener('change', () => updatePlanParentField($('#planForm').elements.parentId.value));
   $('#taskImportInput').addEventListener('change', event => recognizeTaskFiles([...event.target.files]));
   $('#planImportInput').addEventListener('change', event => { if (event.target.files[0]) recognizePlanFile(event.target.files[0]); });
+  $('#planAttachmentInput').addEventListener('change', async event => {
+    const files = [...event.target.files];
+    event.target.value = '';
+    if (!files.length) return;
+    const attachments = await prepareResourceAttachments(files);
+    planAttachmentsDraft.push(...attachments);
+    renderPlanAttachmentList();
+  });
+  attachDropzoneHandlers();
+  enhanceNativeFileUploads();
   $('#resourcePlanForm select[name="type"]').addEventListener('change', event => { populateResourcePlanRoles(event.target.value); updateResourcePlanMaterialFields(); });
   $('#resourcePlanForm select[name="contractBrandRequired"]').addEventListener('change', updateResourcePlanMaterialFields);
   $('#concealedAcceptanceForm select[name="status"]').addEventListener('change', updateConcealedGateHint);
@@ -3403,7 +3527,7 @@ function initializeApp() {
     const owners = level === 'day' || level === 'week' ? String(data.get('owners') || '').split(/[、,，]/).map(item => item.trim()).filter(Boolean) : [];
     const team = level === 'day' || level === 'week' ? String(data.get('team') || '').trim() : '';
     const dailyTarget = level === 'day' ? Math.max(0, Math.min(100, Number(data.get('dailyTarget') || 100))) : null;
-    const base = { level, ownerRole: data.get('ownerRole'), owners, team, dailyTarget, start, end: level === 'day' ? start : data.get('end'), parentId: level === 'day' ? (explicitParentId || inferredParent?.id || null) : null };
+    const base = { level, ownerRole: data.get('ownerRole'), owners, team, dailyTarget, start, end: level === 'day' ? start : data.get('end'), parentId: level === 'day' ? (explicitParentId || inferredParent?.id || null) : null, attachments: [...planAttachmentsDraft] };
     const attachDayTask = plan => {
       if (plan.level !== 'day') return plan;
       let task = tasks.find(item => Number(item.id) === Number(plan.taskId)) || tasks.find(item => Number(item.dayPlanId) === Number(plan.id));
@@ -3423,7 +3547,7 @@ function initializeApp() {
     } else {
       plans.push(attachDayTask({ id: Date.now(), ...base, title: data.get('title'), source: '手工新建' }));
     }
-    activePlanLevel = level; persistPlans(); persistTasks(); editingPlanId = null; planRecognitionCandidates = []; form.reset(); $('#planDialog').close();
+    activePlanLevel = level; persistPlans(); persistTasks(); editingPlanId = null; planRecognitionCandidates = []; planAttachmentsDraft = []; form.reset(); $('#planDialog').close();
     if ($('#schedule').classList.contains('active')) renderSubview('schedule');
     showToast('计划已更新并写入对应计划层级');
   });

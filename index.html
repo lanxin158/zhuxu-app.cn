@@ -446,7 +446,7 @@
       <div class="dialog-heading"><div><span>四级进度计划</span><h2>新建或导入计划</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
       <div class="intake-switcher"><button type="button" class="active" data-plan-mode="manual">手工新建</button><button type="button" data-plan-mode="import">文件导入识别</button></div>
       <section class="intake-panel" id="planImportPanel" hidden>
-        <label class="import-dropzone" for="planImportInput"><strong>导入 PDF、图片、Excel、Word 或 CSV</strong><small>系统提取工作名称和日期，识别结果可修改后写入计划</small></label>
+        <label class="import-dropzone" data-dropzone data-for="planImportInput" for="planImportInput"><strong>导入 PDF、图片、Excel、Word 或 CSV</strong><small>拖拽文件到此处，或点击选择；系统提取工作名称和日期，识别结果可修改后写入计划</small></label>
         <input class="visually-hidden" id="planImportInput" type="file" accept=".pdf,image/*,.xlsx,.xls,.csv,.docx,.txt">
         <div class="recognition-state" id="planRecognitionState">尚未选择文件</div>
       </section>
@@ -455,6 +455,9 @@
       <label id="parentWeekPlanField" hidden>所属周计划<select name="parentId"><option value="">系统按日期自动匹配</option></select><small class="match-hint">日计划必须归入周计划，才能自动判断周进度是否滞后。</small></label>
       <label>工作名称<input name="title" required placeholder="例如：3#楼 9F 主体结构"></label>
       <div class="form-grid"><label>开始日期<input type="date" name="start" required></label><label>完成日期<input type="date" name="end" required></label></div>
+      <label class="import-dropzone plan-attachment-dropzone" data-dropzone data-for="planAttachmentInput"><strong>上传计划表原文件（可选）</strong><small>拖拽或点击上传进度表、横道图等原文件，保存后可在计划列表中随时在线查看</small></label>
+      <input class="visually-hidden" id="planAttachmentInput" type="file" multiple accept=".pdf,image/*,.xlsx,.xls,.csv,.docx,.txt,.png,.jpg,.jpeg,.webp,.gif,.bmp">
+      <div class="plan-attachment-list" id="planAttachmentList"></div>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">更新计划</button></div>
     </form>
   </dialog>
