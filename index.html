@@ -526,6 +526,16 @@
     </form>
   </dialog>
 
+  <dialog id="weatherSettingDialog">
+    <form id="weatherSettingForm" method="dialog">
+      <div class="dialog-heading"><div><span>晴雨表设置</span><h2>设置项目所在地</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="dialog-description">按项目所在地自动获取当地每日天气并生成晴雨表；不同项目可设置不同城市与坐标。</p>
+      <label>城市<input name="city" placeholder="例如：兰州" required></label>
+      <div class="form-grid"><label>纬度<input name="latitude" type="number" step="0.01" min="-90" max="90" required></label><label>经度<input name="longitude" type="number" step="0.01" min="-180" max="180" required></label></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存并刷新</button></div>
+    </form>
+  </dialog>
+
   <dialog id="documentGateDialog">
     <form id="documentGateForm" method="dialog">
       <div class="dialog-heading">

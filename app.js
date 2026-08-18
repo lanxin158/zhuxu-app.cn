@@ -370,6 +370,8 @@ let activeAttachmentUrl = null;
 let mustChangePassword = false;
 let serverAccounts = [];
 let pendingDrawingFiles = [];
+let weatherConfig = JSON.parse(localStorage.getItem('zhuxu-weather-config') || 'null') || { city: '兰州', latitude: 36.06, longitude: 103.83 };
+let weatherData = JSON.parse(localStorage.getItem('zhuxu-weather') || 'null') || null;
 
 const $ = (selector, context = document) => context.querySelector(selector);
 const $$ = (selector, context = document) => [...context.querySelectorAll(selector)];
@@ -1149,6 +1151,68 @@ function renderDailyPlanGroups(dayPlans) {
   }).join('')}</div>`;
 }
 
+function weatherCodeMeta(code) {
+  const map = { 0: ['晴', '☀'], 1: ['晴间多云', '🌤'], 2: ['多云', '⛅'], 3: ['阴', '☁'], 45: ['雾', '🌫'], 48: ['雾凇', '🌫'], 51: ['毛毛雨', '🌦'], 53: ['毛毛雨', '🌦'], 55: ['毛毛雨', '🌦'], 56: ['冻毛毛雨', '🌧'], 57: ['冻毛毛雨', '🌧'], 61: ['小雨', '🌧'], 63: ['中雨', '🌧'], 65: ['大雨', '🌧'], 66: ['冻雨', '🌧'], 67: ['冻雨', '🌧'], 71: ['小雪', '🌨'], 73: ['中雪', '🌨'], 75: ['大雪', '❄'], 77: ['雪粒', '🌨'], 80: ['阵雨', '🌦'], 81: ['阵雨', '🌦'], 82: ['强阵雨', '🌧'], 85: ['阵雪', '🌨'], 86: ['阵雪', '❄'], 95: ['雷暴', '⛈'], 96: ['雷暴冰雹', '⛈'], 99: ['雷暴冰雹', '⛈'] };
+  return map[Number(code)] || ['未知', '🌡'];
+}
+
+function weatherMonthRange() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  return { start: `${year}-${String(month + 1).padStart(2, '0')}-01`, end: dailyDateKey, label: `${year}年${month + 1}月` };
+}
+
+function persistWeatherConfig() {
+  localStorage.setItem('zhuxu-weather-config', JSON.stringify(weatherConfig));
+}
+
+async function loadWeatherData() {
+  const config = weatherConfig;
+  const { start, end } = weatherMonthRange();
+  if (weatherData && weatherData.fetchedAt && weatherData.month === start.slice(0, 7) && weatherData.location === config.city && Date.now() - weatherData.fetchedAt < 3600000) return weatherData;
+  if (window.ZhuxuServer?.active) {
+    try {
+      const data = await window.ZhuxuServer.request(`/api/weather?latitude=${encodeURIComponent(config.latitude)}&longitude=${encodeURIComponent(config.longitude)}&start=${start}&end=${end}`);
+      weatherData = { fetchedAt: Date.now(), month: start.slice(0, 7), location: config.city, daily: data.daily || {} };
+      localStorage.setItem('zhuxu-weather', JSON.stringify(weatherData));
+      return weatherData;
+    } catch (error) { /* 下面提示手动登记 */ }
+  }
+  return weatherData?.month === start.slice(0, 7) ? weatherData : null;
+}
+
+async function refreshWeatherTable() {
+  const el = $('#weatherTable');
+  if (!el) return;
+  const { label } = weatherMonthRange();
+  const data = await loadWeatherData();
+  const time = data?.daily?.time || [];
+  if (!time.length) { el.innerHTML = `<p class="weather-empty">${window.ZhuxuServer?.active ? '天气服务暂不可用或未联网，请稍后重试' : '联网运行后可自动获取天气并生成晴雨表'}</p>`; return; }
+  const max = data.daily.temperature_2m_max || [];
+  const min = data.daily.temperature_2m_min || [];
+  const precip = data.daily.precipitation_sum || [];
+  const codes = data.daily.weather_code || [];
+  el.innerHTML = time.map((date, index) => {
+    const meta = weatherCodeMeta(codes[index]);
+    const rainy = Number(precip[index] || 0) > 0;
+    return `<div class="weather-day ${rainy ? 'rainy' : ''}"><span>${Number(date.slice(8, 10))}</span><i>${meta[1]}</i><strong>${meta[0]}</strong><small>${Math.round(min[index])}~${Math.round(max[index])}℃</small>${rainy ? `<em>${Number(precip[index]).toFixed(1)}mm</em>` : ''}</div>`;
+  }).join('');
+}
+
+function renderWeatherPanel() {
+  const { label } = weatherMonthRange();
+  return `<section class="weather-panel"><div class="weather-panel-heading"><div><span>WEATHER · ${escapeHtml(weatherConfig.city || '未设置城市')}</span><strong>晴雨表</strong><small>${label} · 每日天气自动记录，可按项目设置所在地</small></div><div><button type="button" data-weather-setting>设置地点</button><button type="button" data-weather-refresh>刷新天气</button></div></div><div class="weather-table" id="weatherTable"><p class="weather-loading">正在加载 ${label} 天气…</p></div></section>`;
+}
+
+function openWeatherSetting() {
+  const form = $('#weatherSettingForm');
+  form.elements.city.value = weatherConfig.city || '';
+  form.elements.latitude.value = weatherConfig.latitude ?? 36.06;
+  form.elements.longitude.value = weatherConfig.longitude ?? 103.83;
+  $('#weatherSettingDialog').showModal();
+}
+
 function renderScheduleBody() {
   const levels = { master: '总计划', month: '月计划', week: '周计划', day: '日计划' };
   const visiblePlans = plans.filter(plan => plan.level === activePlanLevel);
@@ -1157,7 +1221,7 @@ function renderScheduleBody() {
     : activePlanLevel === 'day'
       ? renderDailyPlanGroups(visiblePlans)
       : `<div class="plan-list">${visiblePlans.map(plan => renderPlanRow(plan)).join('')}</div>`;
-  return `<div class="plan-level-tabs" role="tablist" aria-label="计划层级">${Object.entries(levels).map(([key, label]) => `<button type="button" class="${key === activePlanLevel ? 'active' : ''}" data-plan-level="${key}">${label}<b>${plans.filter(plan => plan.level === key).length}</b></button>`).join('')}</div>${content}`;
+  return `<div class="plan-level-tabs" role="tablist" aria-label="计划层级">${Object.entries(levels).map(([key, label]) => `<button type="button" class="${key === activePlanLevel ? 'active' : ''}" data-plan-level="${key}">${label}<b>${plans.filter(plan => plan.level === key).length}</b></button>`).join('')}</div>${content}${renderWeatherPanel()}`;
 }
 
 function updatePlanParentField(selectedParentId = '') {
@@ -2711,6 +2775,8 @@ function renderSubview(id) {
     if (!previous) { showToast('没有可撤销的计划操作'); return; }
     plans = previous; persistPlans(); renderSubview('schedule'); showToast('已撤销上一次计划操作');
   });
+  $('[data-weather-refresh]', container)?.addEventListener('click', () => { refreshWeatherTable(); showToast('正在刷新晴雨表'); });
+  $('[data-weather-setting]', container)?.addEventListener('click', openWeatherSetting);
   $$('[data-edit-task-row]', container).forEach(button => button.addEventListener('click', () => openTaskDialog(tasks.find(task => task.id === Number(button.dataset.editTaskRow)))));
   $$('[data-resource-tab]', container).forEach(button => button.addEventListener('click', () => { activeResourceTab = button.dataset.resourceTab; renderSubview('materials'); }));
   $('[data-new-resource-plan]', container)?.addEventListener('click', () => openResourcePlanDialog());
@@ -2742,6 +2808,7 @@ function renderSubview(id) {
     followups = followups.map(item => item.id === Number(button.dataset.remindFollowup) ? { ...item, reminders: item.reminders + 1, lastRemindedAt: new Date().toISOString() } : item);
     persistFollowups(); renderSubview('followups'); showToast('已再次提醒责任人，并记录本次催办');
   }));
+  if (id === 'schedule') refreshWeatherTable();
 }
 
 function navigate(viewId) {
@@ -3571,6 +3638,15 @@ function initializeApp() {
       return { ...existing, name: row.querySelector('[name="personName"]').value, role: row.querySelector('[name="personRole"]').value, phone: row.querySelector('[name="personPhone"]').value, scope: row.querySelector('[name="personScope"]').value };
     });
     persistOrganization(); renderOrganization(); $('#organizationDialog').close(); if ($('#team').classList.contains('active')) renderSubview('team'); showToast('项目组织架构已更新，后续任务将按新岗位匹配');
+  });
+  $('#weatherSettingForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const form = event.currentTarget; const data = new FormData(form);
+    weatherConfig = { city: String(data.get('city') || '').trim(), latitude: Number(data.get('latitude')), longitude: Number(data.get('longitude')) };
+    weatherData = null; localStorage.removeItem('zhuxu-weather');
+    persistWeatherConfig(); $('#weatherSettingDialog').close();
+    if ($('#schedule').classList.contains('active')) renderSubview('schedule');
+    showToast('晴雨表地点已更新，正在刷新天气');
   });
   $('#planForm').addEventListener('submit', event => {
     event.preventDefault();

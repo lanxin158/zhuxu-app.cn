@@ -27,6 +27,7 @@ const SHARED_KEYS = new Set([
 ]);
 const COST_STATE_KEY = 'zhuxu-cost-documents';
 const COST_ROLE_PATTERN = /项目经理|商务|成本|造价/;
+const weatherCache = new Map();
 const PUBLIC_FILES = new Set(['index.html', 'styles.css', 'app.js', 'server-bridge.js', 'vendor/jszip.min.js']);
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml' };
 
@@ -631,6 +632,27 @@ async function handleApi(req, res, url) {
     plan.approvalWorkflow.forEach(step => { step.status = 'pending'; delete step.actedAt; delete step.actedBy; delete step.actedByAccount; });
     setState('zhuxu-resource-plans', plans, user.id, user.project_id); audit(user.id, 'approval_withdrawn', `resource-plan:${plan.id}`, { projectId: user.project_id });
     return sendJson(res, 200, { resourcePlans: plans, plan });
+  }
+  if (req.method === 'GET' && url.pathname === '/api/weather') {
+    if (!user) return sendJson(res, 401, { error: '请先登录' });
+    const lat = Number(url.searchParams.get('latitude')) || 36.06;
+    const lon = Number(url.searchParams.get('longitude')) || 103.83;
+    const end = url.searchParams.get('end') || new Date().toISOString().slice(0, 10);
+    const start = url.searchParams.get('start') || new Date(Date.now() - 91 * 86400000).toISOString().slice(0, 10);
+    const cacheKey = `weather:${lat.toFixed(3)}:${lon.toFixed(3)}:${start}:${end}`;
+    const cached = weatherCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < 10 * 60 * 1000) return sendJson(res, 200, cached.data);
+    try {
+      const upstream = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code&timezone=Asia%2FShanghai`);
+      if (!upstream.ok) throw new Error(`上游天气服务返回 ${upstream.status}`);
+      const data = await upstream.json();
+      const payload = { latitude: lat, longitude: lon, timezone: 'Asia/Shanghai', daily: data.daily || {} };
+      weatherCache.set(cacheKey, { at: Date.now(), data: payload });
+      return sendJson(res, 200, payload);
+    } catch (error) {
+      console.error('weather fetch failed:', error.message);
+      return sendJson(res, 502, { error: '天气服务暂不可用，请稍后重试或手动登记' });
+    }
   }
   return sendJson(res, 404, { error: '接口不存在' });
 }
