@@ -113,6 +113,29 @@ async function openLegacyDashboard(page) {
   await page.waitForTimeout(350);
   await page.screenshot({ path: path.join(root, 'qa-schedule.png'), fullPage: true });
 
+  // #8 计划多子任务自动拆分
+  const today = await page.evaluate(() => dailyDateKey);
+  await page.locator('#schedule [data-plan-level="day"]').click();
+  await page.locator('#schedule .subview-action').click();
+  await page.locator('#planForm select[name="level"]').selectOption('day');
+  await page.locator('#planForm input[name="title"]').fill('测试多子任务日计划');
+  await page.locator('#planForm input[name="start"]').fill(today);
+  await page.locator('#planForm input[name="end"]').fill(today);
+  await page.locator('#addPlanSubtaskButton').click();
+  await page.locator('#addPlanSubtaskButton').click();
+  const subtaskTitles = page.locator('#planSubtaskList .plan-subtask-title');
+  await subtaskTitles.nth(0).fill('子任务A：模板加固');
+  await subtaskTitles.nth(1).fill('子任务B：钢筋验收');
+  await page.locator('#planSubtaskList .plan-subtask-team').nth(0).fill('木工一班');
+  await page.locator('#planSubtaskList .plan-subtask-team').nth(1).fill('钢筋班组');
+  await page.locator('#planForm').getByRole('button', { name: '更新计划' }).click();
+  if (!(await page.locator('#schedule').getByText('测试多子任务日计划').isVisible())) throw new Error('Multi-subtask day plan was not added');
+  await page.locator('[data-view="intake"]').click();
+  if (!(await page.locator('#intake').getByText('子任务A：模板加固').isVisible())) throw new Error('Sub-task A was not split into daily execution');
+  if (!(await page.locator('#intake').getByText('子任务B：钢筋验收').isVisible())) throw new Error('Sub-task B was not split into daily execution');
+  await page.waitForTimeout(350);
+  await page.screenshot({ path: path.join(root, 'qa-multi-subtask.png'), fullPage: true });
+
   await page.evaluate(() => navigate('tasks'));
   if (await page.locator('#addTaskButton').isVisible()) throw new Error('Global feedback button should only appear on daily execution homepage');
   await page.locator('[data-edit-task-row="1"]').click();

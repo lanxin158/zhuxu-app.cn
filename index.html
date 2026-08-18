@@ -454,6 +454,10 @@
       <div class="form-grid"><label>计划层级<select name="level"><option value="master">总计划</option><option value="month">月计划</option><option value="week" selected>周计划</option><option value="day">日计划</option></select></label><label id="planOwnerRoleField">责任岗位<select name="ownerRole"><option>生产经理</option><option>项目经理</option><option>土建工程师</option><option>机电工程师</option></select></label><label id="planOwnersField" hidden>责任人<input name="owners" list="organizationOwners" placeholder="可多选，用、分隔"></label><label id="planTeamField" hidden>责任班组<input name="team" placeholder="例如：钢筋班组"></label><label id="planDailyTargetField" hidden>当日完成百分比<input name="dailyTarget" type="number" min="0" max="100" placeholder="例如：100"></label></div>
       <label id="parentWeekPlanField" hidden>所属周计划<select name="parentId"><option value="">系统按日期自动匹配</option></select><small class="match-hint">日计划必须归入周计划，才能自动判断周进度是否滞后。</small></label>
       <label>工作名称<input name="title" required placeholder="例如：3#楼 9F 主体结构"></label>
+      <section class="plan-subtasks" id="planSubtasksSection">
+        <div class="plan-subtasks-heading"><div><strong>计划子任务（可选）</strong><small>一个计划可包含多个子任务，保存后自动拆分为每日执行里的独立任务；只需调整责任人 / 责任班组</small></div><button type="button" class="secondary-button" id="addPlanSubtaskButton">＋ 添加子任务</button></div>
+        <div id="planSubtaskList"></div>
+      </section>
       <div class="form-grid"><label>开始日期<input type="date" name="start" required></label><label>完成日期<input type="date" name="end" required></label></div>
       <label class="import-dropzone plan-attachment-dropzone" data-dropzone data-for="planAttachmentInput"><strong>上传计划表原文件（可选）</strong><small>拖拽或点击上传进度表、横道图等原文件，保存后可在计划列表中随时在线查看</small></label>
       <input class="visually-hidden" id="planAttachmentInput" type="file" multiple accept=".pdf,image/*,.xlsx,.xls,.csv,.docx,.txt,.png,.jpg,.jpeg,.webp,.gif,.bmp">

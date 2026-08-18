@@ -358,6 +358,7 @@ let editingPlanId = null;
 let editingIntakeId = null;
 let planRecognitionCandidates = [];
 let planAttachmentsDraft = [];
+let planSubtasksDraft = [];
 let planUndoStack = [];
 let taskRecognitionCandidates = [];
 let selectedPhotos = [];
@@ -1102,7 +1103,22 @@ function renderFollowupsBody() {
     </div>`;
 }
 
+function getDayPlanTaskList(dayPlan) {
+  const byPlan = tasks.filter(task => Number(task.dayPlanId) === Number(dayPlan.id)).sort((a, b) => Number(a.id) - Number(b.id));
+  if (byPlan.length) return byPlan;
+  const byId = tasks.find(task => Number(task.id) === Number(dayPlan.taskId));
+  return byId ? [byId] : [];
+}
+
 function getPlanExecutionRecord(plan) {
+  const taskList = plan.level === 'day' ? getDayPlanTaskList(plan) : [];
+  if (taskList.length > 1) {
+    const records = taskList.map(task => dailyExecution.find(item => Number(item.taskId) === Number(task.id) && item.date === plan.start)).filter(Boolean);
+    if (records.length) {
+      const progress = Math.round(records.reduce((sum, record) => sum + Number(record.progress || 0), 0) / records.length);
+      return { ...records[0], progress, aggregated: true };
+    }
+  }
   return dailyExecution.find(item => Number(item.dayPlanId) === Number(plan.id))
     || dailyExecution.find(item => Number(item.taskId) === Number(plan.taskId) && item.date === plan.start);
 }
@@ -1123,7 +1139,7 @@ function renderPlanRow(plan, groupedDay = false) {
   } else {
     metaColumns = `<span>${escapeHtml(plan.start)}</span><span>${escapeHtml(plan.end)}</span><span>${escapeHtml(plan.ownerRole || '待明确')}</span>`;
   }
-  return `<article class="plan-row${isDay ? ' day-plan-row' : ''}${isWeek ? ' week-plan-row' : ''}"><div><strong>${escapeHtml(plan.title)}</strong><small>来源：${escapeHtml(plan.source || '手工新建')}${parent ? ` · 所属周计划：${escapeHtml(parent.title)}` : ''}</small></div>${metaColumns}<div class="plan-row-actions">${(plan.attachments || []).length ? `<button class="view-action" data-plan-attachment="${plan.id}">查看计划表</button>` : ''}<button class="edit-action" data-edit-plan="${plan.id}">编辑计划</button></div></article>`;
+  return `<article class="plan-row${isDay ? ' day-plan-row' : ''}${isWeek ? ' week-plan-row' : ''}"><div><strong>${escapeHtml(plan.title)}</strong><small>来源：${escapeHtml(plan.source || '手工新建')}${parent ? ` · 所属周计划：${escapeHtml(parent.title)}` : ''}${(plan.subTasks || []).length ? ` · ${plan.subTasks.length} 项子任务` : ''}</small></div>${metaColumns}<div class="plan-row-actions">${(plan.attachments || []).length ? `<button class="view-action" data-plan-attachment="${plan.id}">查看计划表</button>` : ''}<button class="edit-action" data-edit-plan="${plan.id}">编辑计划</button></div></article>`;
 }
 
 function formatDailyPlanGroupLabel(dateKey) {
@@ -1254,8 +1270,10 @@ function openPlanDialog(plan = null) {
   editingPlanId = plan?.id || null;
   planRecognitionCandidates = [];
   planAttachmentsDraft = [...(plan?.attachments || [])];
+  planSubtasksDraft = (plan?.subTasks || []).map(subtask => ({ title: subtask.title || '', owner: subtask.owner || '', team: subtask.team || '' }));
   renderPlanRecognitionCandidates();
   renderPlanAttachmentList();
+  renderPlanSubtaskList();
   setPlanMode('manual');
   form.elements.level.value = plan?.level || activePlanLevel;
   form.elements.title.value = plan?.title || '';
@@ -1880,6 +1898,22 @@ function renderPlanAttachmentList() {
   $$('[data-remove-plan-attachment]', list).forEach(button => button.addEventListener('click', () => { planAttachmentsDraft.splice(Number(button.dataset.removePlanAttachment), 1); renderPlanAttachmentList(); }));
 }
 
+function renderPlanSubtaskList() {
+  const list = $('#planSubtaskList');
+  if (!list) return;
+  if (!planSubtasksDraft.length) { list.innerHTML = '<p class="plan-subtask-empty">未添加子任务：保存时按“工作名称”生成一条任务；添加子任务后按每条子任务自动拆分。</p>'; return; }
+  list.innerHTML = planSubtasksDraft.map((subtask, index) => `<div class="plan-subtask-row" data-plan-subtask="${index}"><input class="plan-subtask-title" value="${escapeHtml(subtask.title || '')}" placeholder="子任务名称"><input class="plan-subtask-owner" list="organizationOwners" value="${escapeHtml(subtask.owner || '')}" placeholder="责任人（可留空自动匹配）"><input class="plan-subtask-team" value="${escapeHtml(subtask.team || '')}" placeholder="责任班组"><button type="button" data-remove-plan-subtask="${index}" aria-label="移除子任务">×</button></div>`).join('');
+  $$('[data-remove-plan-subtask]', list).forEach(button => button.addEventListener('click', () => { planSubtasksDraft.splice(Number(button.dataset.removePlanSubtask), 1); renderPlanSubtaskList(); }));
+  $$('.plan-subtask-title', list).forEach(input => input.addEventListener('input', () => { planSubtasksDraft[Number(input.closest('[data-plan-subtask]').dataset.planSubtask)].title = input.value; }));
+  $$('.plan-subtask-owner', list).forEach(input => input.addEventListener('input', () => { planSubtasksDraft[Number(input.closest('[data-plan-subtask]').dataset.planSubtask)].owner = input.value; }));
+  $$('.plan-subtask-team', list).forEach(input => input.addEventListener('input', () => { planSubtasksDraft[Number(input.closest('[data-plan-subtask]').dataset.planSubtask)].team = input.value; }));
+}
+
+function addPlanSubtask(subtask = {}) {
+  planSubtasksDraft.push({ title: subtask.title || '', owner: subtask.owner || '', team: subtask.team || '' });
+  renderPlanSubtaskList();
+}
+
 function attachDropzoneHandlers(root = document) {
   $$('[data-dropzone]', root).forEach(dropzone => {
     if (dropzone.dataset.dropzoneBound) return;
@@ -2377,7 +2411,8 @@ function renderCollectionRegister() {
 }
 
 function getDailyExecutionRecord(taskId, date = activeExecutionDate, dayPlan = null) {
-  let record = dailyExecution.find(item => (dayPlan && Number(item.dayPlanId) === Number(dayPlan.id)) || (Number(item.taskId) === Number(taskId) && item.date === date));
+  let record = dailyExecution.find(item => Number(item.taskId) === Number(taskId) && item.date === date);
+  if (!record && dayPlan) record = dailyExecution.find(item => Number(item.dayPlanId) === Number(dayPlan.id) && item.date === date);
   if (!record) {
     const task = tasks.find(item => Number(item.id) === Number(taskId));
     const isPast = date < dailyDateKey;
@@ -2390,11 +2425,17 @@ function getDailyExecutionRecord(taskId, date = activeExecutionDate, dayPlan = n
 }
 
 function getDailyTaskContexts(date = activeExecutionDate) {
-  return plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date).sort((a,b) => Number(a.id) - Number(b.id)).map(dayPlan => {
-    const storedTask = tasks.find(task => Number(task.id) === Number(dayPlan.taskId) || Number(task.dayPlanId) === Number(dayPlan.id));
-    const task = storedTask || { id: dayPlan.taskId || dayPlan.id, title: dayPlan.title, zone: '计划指定区域', owner: planOwners(dayPlan)[0] || resolveOrganizationOwner(dayPlan.ownerRole), time: '17:00', status: 'todo', priority: 'normal', virtual: true };
-    return { task, dayPlan, record: getDailyExecutionRecord(task.id, date, dayPlan) };
+  const contexts = [];
+  plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date).sort((a, b) => Number(a.id) - Number(b.id)).forEach(dayPlan => {
+    const taskList = getDayPlanTaskList(dayPlan);
+    if (taskList.length) {
+      taskList.forEach(task => contexts.push({ task, dayPlan, record: getDailyExecutionRecord(task.id, date, dayPlan) }));
+    } else {
+      const virtual = { id: dayPlan.taskId || dayPlan.id, title: dayPlan.title, zone: '计划指定区域', owner: planOwners(dayPlan)[0] || resolveOrganizationOwner(dayPlan.ownerRole), time: '17:00', status: 'todo', priority: 'normal', virtual: true };
+      contexts.push({ task: virtual, dayPlan, record: getDailyExecutionRecord(virtual.id, date, dayPlan) });
+    }
   });
+  return contexts;
 }
 
 function calculateWeeklyProgress(date = activeExecutionDate, contexts = getDailyTaskContexts(date)) {
@@ -2405,7 +2446,7 @@ function calculateWeeklyProgress(date = activeExecutionDate, contexts = getDaily
   const duePlans = weekDayPlans.filter(plan => plan.start <= date);
   const plannedWeight = duePlans.reduce((sum, plan) => sum + Number(plan.weight || 1), 0);
   const actualWeight = duePlans.reduce((sum, plan) => {
-    const record = dailyExecution.find(item => Number(item.dayPlanId) === Number(plan.id)) || dailyExecution.find(item => Number(item.taskId) === Number(plan.taskId) && item.date === plan.start);
+    const record = getPlanExecutionRecord(plan);
     return sum + Number(plan.weight || 1) * Math.min(100, Number(record?.progress || 0)) / 100;
   }, 0);
   const planned = totalWeight ? Math.round(plannedWeight / totalWeight * 100) : 0;
@@ -2441,7 +2482,7 @@ function renderDailyTaskRow(context, index) {
   const showLag = lagDays > 0 && record.autoGenerated !== true;
   const needsConfirm = record.autoGenerated === true && record.confirmed !== true;
   return `<article class="daily-task-row ${task.priority === 'risk' ? 'risk' : ''} ${showLag ? 'lagging' : ''}" data-daily-task="${task.id}" data-day-plan="${dayPlan.id}" data-record-date="${record.date}">
-    <div class="daily-task-identity"><span class="daily-sequence">${String(index + 1).padStart(2,'0')}</span><div><strong>${escapeHtml(dayPlan.title)}</strong>${showLag ? `<em class="lag-badge">滞后 ${lagDays} 天</em>` : ''}${needsConfirm ? '<em class="confirm-badge">待确认</em>' : ''}<small>日计划 #${dayPlan.id} · ${escapeHtml(weekPlan?.title || '待关联周计划')}</small><small>${escapeHtml(task.zone)} · ${escapeHtml(task.owner)} → ${escapeHtml(record.team)}</small><div class="daily-task-progress"><i style="width:${Math.min(100, Number(record.progress || 0))}%"></i></div><em>${record.progress}% · ${escapeHtml(record.actualQuantity || '待反馈')}</em></div></div>
+    <div class="daily-task-identity"><span class="daily-sequence">${String(index + 1).padStart(2,'0')}</span><div><strong>${escapeHtml(task.title)}</strong>${showLag ? `<em class="lag-badge">滞后 ${lagDays} 天</em>` : ''}${needsConfirm ? '<em class="confirm-badge">待确认</em>' : ''}<small>日计划 #${dayPlan.id} · ${escapeHtml(weekPlan?.title || '待关联周计划')}</small><small>${escapeHtml(task.zone)} · ${escapeHtml(task.owner)} → ${escapeHtml(record.team)}</small><div class="daily-task-progress"><i style="width:${Math.min(100, Number(record.progress || 0))}%"></i></div><em>${record.progress}% · ${escapeHtml(record.actualQuantity || '待反馈')}</em></div></div>
     <button type="button" class="daily-worker-cell daily-worker-open" data-workers="${task.id}"><span>班组人员</span><strong>${record.actualWorkers}<small> / ${record.plannedWorkers} 人</small></strong><em class="${workerGap ? 'warning' : 'ready'}">${workerGap ? `缺 ${workerGap} 人` : '点击查看打卡明细'}</em></button>
     <button type="button" class="daily-condition ${notice ? 'notice' : 'ready'}" data-technical-task="${task.id}">${notice ? '<i class="daily-risk-flag">!</i>' : ''}<span>技术交底</span><strong>${notice ? `⚠ ${escapeHtml(notice.type)}` : '常规施工'}</strong><small>${notice ? `${acknowledged}/${requiredAcknowledgements} 人确认 · 查看变更内容` : '点击查看交底要求'}</small></button>
     <button type="button" class="daily-feedback-action" data-daily-feedback="${task.id}" data-feedback-date="${record.date}" ${editable ? '' : 'disabled'}>${needsConfirm ? '⚠ 确认 / 修改' : editable ? (isToday ? '反馈进度' : '编辑记录') : '历史记录'}</button>
@@ -2449,19 +2490,23 @@ function renderDailyTaskRow(context, index) {
 }
 
 function getDailyCompletionSummary(date) {
-  const dayPlans = plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date);
-  const records = dayPlans.map(plan => dailyExecution.find(item => Number(item.dayPlanId) === Number(plan.id)) || dailyExecution.find(item => Number(item.taskId) === Number(plan.taskId) && item.date === date)).filter(Boolean);
-  const rate = records.length ? Math.round(records.reduce((sum,item) => sum + Math.min(100, Number(item.progress || 0)), 0) / dayPlans.length) : 0;
-  return { total: dayPlans.length, completed: records.filter(item => Number(item.progress) >= 100).length, rate };
+  const contexts = getDailyTaskContexts(date);
+  const records = contexts.map(item => item.record);
+  const completed = records.filter(item => Number(item.progress) >= 100).length;
+  const rate = records.length ? Math.round(records.reduce((sum, item) => sum + Math.min(100, Number(item.progress || 0)), 0) / records.length) : 0;
+  return { total: contexts.length, completed, rate };
 }
 
 function getCarryoverContexts(date) {
-  return plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date).sort((a,b) => Number(a.id) - Number(b.id)).map(dayPlan => {
-    const task = tasks.find(item => Number(item.id) === Number(dayPlan.taskId));
-    const record = dailyExecution.find(item => Number(item.taskId) === Number(dayPlan.taskId) && item.date === date)
-      || dailyExecution.find(item => Number(item.dayPlanId) === Number(dayPlan.id));
-    return task && record ? { task, dayPlan, record } : null;
-  }).filter(Boolean);
+  const contexts = [];
+  plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date).sort((a, b) => Number(a.id) - Number(b.id)).forEach(dayPlan => {
+    getDayPlanTaskList(dayPlan).forEach(task => {
+      const record = dailyExecution.find(item => Number(item.taskId) === Number(task.id) && item.date === date)
+        || dailyExecution.find(item => Number(item.dayPlanId) === Number(dayPlan.id) && item.date === date);
+      if (record) contexts.push({ task, dayPlan, record });
+    });
+  });
+  return contexts;
 }
 
 function renderIntakeBody() {
@@ -3205,6 +3250,7 @@ function initializeApp() {
   $('#planForm input[name="start"]').addEventListener('change', () => updatePlanParentField($('#planForm').elements.parentId.value));
   $('#taskImportInput').addEventListener('change', event => recognizeTaskFiles([...event.target.files]));
   $('#planImportInput').addEventListener('change', event => { if (event.target.files[0]) recognizePlanFile(event.target.files[0]); });
+  $('#addPlanSubtaskButton').addEventListener('click', () => addPlanSubtask());
   $('#planAttachmentInput').addEventListener('change', async event => {
     const files = [...event.target.files];
     event.target.value = '';
@@ -3332,13 +3378,14 @@ function initializeApp() {
     const form = event.currentTarget; const data = new FormData(form); const taskId = Number(data.get('taskId'));
     const dateKey = data.get('date') || dailyDateKey;
     const isToday = dateKey === dailyDateKey;
-    const dayPlan = plans.find(plan => plan.level === 'day' && Number(plan.taskId) === taskId && plan.start === dateKey);
+    const sourceTask = tasks.find(item => Number(item.id) === taskId);
+    const dayPlan = plans.find(plan => plan.level === 'day' && (Number(plan.taskId) === taskId || Number(sourceTask?.dayPlanId) === Number(plan.id)) && plan.start === dateKey);
     const existing = getDailyExecutionRecord(taskId, dateKey, dayPlan); const submit = form.querySelector('[type="submit"]');
     submit.disabled = true; submit.textContent = '保存中…';
     try {
       const photos = await prepareResourceAttachments([...form.elements.photos.files]);
       const record = { ...existing, taskId, dayPlanId: dayPlan?.id || existing.dayPlanId, weekPlanId: dayPlan?.parentId || existing.weekPlanId, date: dateKey, team: data.get('team'), plannedWorkers: Number(data.get('plannedWorkers')), actualWorkers: Number(data.get('actualWorkers')), progress: Number(data.get('progress')), actualQuantity: data.get('actualQuantity'), materialPercent: Number(data.get('materialPercent')), materialText: data.get('materialText'), documentDone: Number(data.get('documentDone')), documentTotal: Number(data.get('documentTotal')), documentText: data.get('documentText'), note: data.get('note'), confirmed: true, feedbackPhotos: [...(existing.feedbackPhotos || []), ...photos], feedbackAt: new Date().toISOString(), feedbackBy: currentOperatorLabel() };
-      dailyExecution = dailyExecution.map(item => ((record.dayPlanId && Number(item.dayPlanId) === Number(record.dayPlanId)) || (Number(item.taskId) === taskId && item.date === dateKey)) ? record : item);
+      dailyExecution = dailyExecution.map(item => ((Number(item.taskId) === taskId && item.date === dateKey) || (record.dayPlanId && Number(item.dayPlanId) === Number(record.dayPlanId) && !item.taskId)) ? record : item);
       if (isToday) {
         const status = data.get('status') === 'done' || record.progress >= 100 ? 'done' : data.get('status') === 'doing' || record.progress > 0 ? 'doing' : 'todo';
         tasks = tasks.map(item => Number(item.id) === taskId ? { ...item, status, owner: data.get('owner') || item.owner } : item);
@@ -3660,17 +3707,37 @@ function initializeApp() {
     const owners = level === 'day' || level === 'week' ? String(data.get('owners') || '').split(/[、,，]/).map(item => item.trim()).filter(Boolean) : [];
     const team = level === 'day' || level === 'week' ? String(data.get('team') || '').trim() : '';
     const dailyTarget = level === 'day' ? Math.max(0, Math.min(100, Number(data.get('dailyTarget') || 100))) : null;
-    const base = { level, ownerRole: data.get('ownerRole'), owners, team, dailyTarget, start, end: level === 'day' ? start : data.get('end'), parentId: level === 'day' ? (explicitParentId || inferredParent?.id || null) : null, attachments: [...planAttachmentsDraft] };
+    const base = { level, ownerRole: data.get('ownerRole'), owners, team, dailyTarget, start, end: level === 'day' ? start : data.get('end'), parentId: level === 'day' ? (explicitParentId || inferredParent?.id || null) : null, attachments: [...planAttachmentsDraft], subTasks: planSubtasksDraft.map(subtask => ({ title: String(subtask.title || '').trim(), owner: String(subtask.owner || '').trim(), team: String(subtask.team || '').trim() })).filter(subtask => subtask.title) };
     const attachDayTask = plan => {
       if (plan.level !== 'day') return plan;
-      let task = tasks.find(item => Number(item.id) === Number(plan.taskId)) || tasks.find(item => Number(item.dayPlanId) === Number(plan.id));
-      if (!task) {
-        task = { id: Date.now() + Math.floor(Math.random() * 1000), dayPlanId: plan.id, title: plan.title, zone: '计划指定区域', owner: planOwners(plan)[0] || resolveOrganizationOwner(plan.ownerRole), creator: currentOperatorLabel(), taskType: '施工任务', time: '17:00', status: 'todo', priority: 'normal', criteria: `来源：日进度计划 #${plan.id}` };
+      const specs = (plan.subTasks || []).filter(subtask => subtask.title).length
+        ? plan.subTasks.filter(subtask => subtask.title)
+        : [{ title: plan.title, owner: planOwners(plan)[0] || resolveOrganizationOwner(plan.ownerRole), team: plan.team || '' }];
+      const defaultOwner = planOwners(plan)[0] || resolveOrganizationOwner(plan.ownerRole);
+      const legacyTaskId = Number(plan.taskId);
+      tasks = tasks.filter(task => !(Number(task.dayPlanId) === Number(plan.id)) && !(legacyTaskId && Number(task.id) === legacyTaskId));
+      const baseId = Date.now();
+      const taskIds = [];
+      specs.forEach((spec, index) => {
+        const task = {
+          id: baseId + index,
+          dayPlanId: plan.id,
+          title: spec.title,
+          zone: '计划指定区域',
+          owner: spec.owner || defaultOwner,
+          creator: currentOperatorLabel(),
+          taskType: '施工任务',
+          time: '17:00',
+          status: 'todo',
+          priority: 'normal',
+          criteria: `来源：日进度计划 #${plan.id}`,
+          team: spec.team || plan.team || ''
+        };
         tasks.unshift(task);
-      } else {
-        Object.assign(task, { dayPlanId: plan.id, title: plan.title, owner: task.owner || planOwners(plan)[0] || resolveOrganizationOwner(plan.ownerRole) });
-      }
-      plan.taskId = task.id;
+        taskIds.push(task.id);
+      });
+      plan.taskId = taskIds[0] || null;
+      plan.taskIds = taskIds;
       return plan;
     };
     if (editingPlanId) {
@@ -3680,7 +3747,7 @@ function initializeApp() {
     } else {
       plans.push(attachDayTask({ id: Date.now(), ...base, title: data.get('title'), source: '手工新建' }));
     }
-    activePlanLevel = level; persistPlans(); persistTasks(); editingPlanId = null; planRecognitionCandidates = []; planAttachmentsDraft = []; form.reset(); $('#planDialog').close();
+    activePlanLevel = level; persistPlans(); persistTasks(); editingPlanId = null; planRecognitionCandidates = []; planAttachmentsDraft = []; planSubtasksDraft = []; form.reset(); $('#planDialog').close();
     if ($('#schedule').classList.contains('active')) renderSubview('schedule');
     showToast('计划已更新并写入对应计划层级');
   });
