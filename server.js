@@ -159,7 +159,7 @@ function publicUser(user) {
   return base;
 }
 const STATE_WRITE_ROLES = {
-  'zhuxu-organization': ['项目经理'],
+  'zhuxu-organization': ['项目经理', '劳资员'],
   'zhuxu-attendance': ['劳资员', '项目经理']
 };
 function canWriteStateKey(user, key) {

@@ -358,6 +358,7 @@ let editingPlanId = null;
 let editingIntakeId = null;
 let planRecognitionCandidates = [];
 let planAttachmentsDraft = [];
+let planUndoStack = [];
 let taskRecognitionCandidates = [];
 let selectedPhotos = [];
 let pendingTaskTransition = null;
@@ -2203,7 +2204,8 @@ function renderTeamBody() {
   const role = String(person?.role || '');
   const admin = serverActive ? /项目经理/.test(role) : true;
   const attendanceManager = serverActive ? /(劳资员|项目经理)/.test(role) : true;
-  const organizationAction = admin ? `<button type="button" data-edit-organization>编辑人员</button>` : `<span class="management-permission-note">仅项目经理可维护组织架构</span>`;
+  const organizationManager = serverActive ? /(项目经理|劳资员)/.test(role) : true;
+  const organizationAction = organizationManager ? `<button type="button" data-edit-organization>编辑人员</button>` : `<span class="management-permission-note">仅项目经理或劳资员可维护组织架构</span>`;
   const attendanceAction = attendanceManager ? `<button type="button" data-attendance>上传考勤表</button>` : '';
   const supplementAction = record => attendanceManager ? `<button type="button" class="attendance-supplement-action ${attendanceSupplementWindow(record).allowed ? '' : 'expired'}" data-supplement-attendance="${record.id}" ${attendanceSupplementWindow(record).allowed ? '' : 'disabled'}>${attendanceSupplementLabel(record)}</button>` : '';
   const accountPanel = serverActive && admin ? `<section class="account-manage-panel"><div class="section-line-heading"><div><strong>账号管理</strong><small>维护登录账号与登录状态；新账号初始密码为手机号后六位，首次登录强制修改密码</small></div><button type="button" data-new-account>新增账号</button></div><div class="account-manage-list" id="accountManageList">正在加载项目账号…</div></section>` : '';
@@ -2661,7 +2663,8 @@ function renderSubview(id) {
     }[config.content];
     body = `<div class="card-collection">${cards.map(c=>`<article class="info-card"><h3>${c[0]}</h3><div class="big">${c[1]}</div><p>${c[2]}</p><div class="mini-bar"><i style="width:${c[3]}%"></i></div></article>`).join('')}</div>`;
   }
-  container.innerHTML = `<div class="subview-shell"><div class="subview-heading"><div><p class="eyebrow">${escapeHtml(currentProject.name)}</p><h1 id="${id}Title">${config.title}</h1><p>${config.desc}</p></div><button class="primary-button subview-action">＋ ${config.action}</button></div>${body}</div>`;
+  const undoButton = id === 'schedule' && planUndoStack.length ? '<button type="button" class="secondary-button undo-plan-button" data-undo-plan>撤销上次计划</button>' : '';
+  container.innerHTML = `<div class="subview-shell"><div class="subview-heading"><div><p class="eyebrow">${escapeHtml(currentProject.name)}</p><h1 id="${id}Title">${config.title}</h1><p>${config.desc}</p></div><div class="subview-heading-actions">${undoButton}<button class="primary-button subview-action">＋ ${config.action}</button></div></div>${body}</div>`;
   $('.subview-action', container).addEventListener('click', () => {
     if (id === 'intake') openDailyFeedbackDialog(null, dailyDateKey);
     else if (id === 'technical') openTechnicalDocumentDialog();
@@ -2703,6 +2706,11 @@ function renderSubview(id) {
   $('[data-open-collection]', container)?.addEventListener('click', openIntakeDialog);
   $$('[data-edit-plan]', container).forEach(button => button.addEventListener('click', () => openPlanDialog(plans.find(plan => plan.id === Number(button.dataset.editPlan)))));
   $$('[data-plan-attachment]', container).forEach(button => button.addEventListener('click', () => { const plan = plans.find(item => Number(item.id) === Number(button.dataset.planAttachment)); const file = plan?.attachments?.[0]; if (file) previewStoredAttachment(file); }));
+  $('[data-undo-plan]', container)?.addEventListener('click', () => {
+    const previous = planUndoStack.pop();
+    if (!previous) { showToast('没有可撤销的计划操作'); return; }
+    plans = previous; persistPlans(); renderSubview('schedule'); showToast('已撤销上一次计划操作');
+  });
   $$('[data-edit-task-row]', container).forEach(button => button.addEventListener('click', () => openTaskDialog(tasks.find(task => task.id === Number(button.dataset.editTaskRow)))));
   $$('[data-resource-tab]', container).forEach(button => button.addEventListener('click', () => { activeResourceTab = button.dataset.resourceTab; renderSubview('materials'); }));
   $('[data-new-resource-plan]', container)?.addEventListener('click', () => openResourcePlanDialog());
@@ -3567,6 +3575,8 @@ function initializeApp() {
   $('#planForm').addEventListener('submit', event => {
     event.preventDefault();
     const form = event.currentTarget; const data = new FormData(form);
+    planUndoStack.push(plans.map(plan => ({ ...plan, attachments: [...(plan.attachments || [])] })));
+    if (planUndoStack.length > 10) planUndoStack.shift();
     const level = data.get('level');
     const start = data.get('start');
     const explicitParentId = Number(data.get('parentId')) || null;
