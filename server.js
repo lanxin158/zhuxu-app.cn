@@ -6,6 +6,10 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
+const meetingRules = require('./meeting-rules');
+const scheduleRules = require('./schedule-rules');
+const scheduleRecognition = require('./schedule-recognition');
+const {recognizeImage} = require('./schedule-ocr-server');
 
 const HOST = process.env.ZHUXU_HOST || '0.0.0.0';
 const PORT = Number(process.env.ZHUXU_PORT || 8080);
@@ -28,7 +32,7 @@ const SHARED_KEYS = new Set([
 const COST_STATE_KEY = 'zhuxu-cost-documents';
 const COST_ROLE_PATTERN = /项目经理|商务|成本|造价/;
 const weatherCache = new Map();
-const PUBLIC_FILES = new Set(['index.html', 'styles.css', 'app.js', 'server-bridge.js', 'vendor/jszip.min.js']);
+const PUBLIC_FILES = new Set(['index.html', 'styles.css', 'app.js', 'meeting-rules.js', 'schedule-rules.js', 'schedule-recognition.js', 'schedule-recognition-ui.js', 'schedule-ui.js', 'server-bridge.js', 'vendor/jszip.min.js']);
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml' };
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -153,6 +157,15 @@ async function readJson(req) {
 function canAccessCost(user) { return Boolean(user && COST_ROLE_PATTERN.test(String(user.role || ''))); }
 function mustChangePending(user) { return Boolean(user && user.must_change_password === 1); }
 function isProjectManager(user) { return Boolean(user && /项目经理/.test(String(user.role || ''))); }
+function markRequesterApproval(workflow = [], plan = {}) {
+  const requesterStep = workflow.find(step => step.role === '提报人');
+  if (!requesterStep) return workflow;
+  requesterStep.status = 'approved';
+  requesterStep.actedAt = requesterStep.actedAt || plan.createdAt || nowIso();
+  requesterStep.actedBy = requesterStep.actedBy || requesterStep.owner || plan.requester || '';
+  requesterStep.actedByAccount = requesterStep.actedByAccount || '';
+  return workflow;
+}
 function publicUser(user) {
   if (!user) return null;
   const base = { id: user.id, account: user.account, name: user.name, role: user.role, phone: user.phone, scope: user.scope, permissions: { cost: canAccessCost(user) }, mustChangePassword: mustChangePending(user), project: user.project_id ? { id: user.project_id, name: user.project_name || '', code: user.project_code || '' } : null };
@@ -579,6 +592,56 @@ async function handleApi(req, res, url) {
   if (req.method === 'POST' && url.pathname === '/api/attachments') return handleAttachmentUpload(req, res, user);
   const attachmentGet = url.pathname.match(/^\/api\/attachments\/([^/]+)$/);
   if (req.method === 'GET' && attachmentGet) return handleAttachmentDownload(req, res, user, decodeURIComponent(attachmentGet[1]));
+  if (req.method === 'GET' && url.pathname === '/api/todos') {
+    return sendJson(res, 200, { items: meetingRules.todos(stateSnapshot(user), user), scope: meetingRules.canSeeAll(user) ? 'all' : 'mine' });
+  }
+  if (req.method === 'POST' && url.pathname === '/api/schedules/recognize') {
+    if (!requireChangedUser(user,res)) return;
+    const body=await readJson(req);
+    if (!body.image || !Number.isInteger(body.width) || !Number.isInteger(body.height) || body.width<1 || body.height<1 || body.width*body.height>30000000 || !Array.isArray(body.bars) || body.bars.length>2000 || body.bars.some(b=>!['critical','normal'].includes(b.kind)||!['x','right','y','bottom','width','height'].every(k=>Number.isFinite(b[k]))||b.x<0||b.y<0||b.right>body.width||b.bottom>body.height||b.width<=0||b.height<=0)) return sendJson(res,400,{error:'识别图片或横条信息无效'});
+    const image=Buffer.from(String(body.image),'base64');
+    if (!(image.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])) || image[0]===255&&image[1]===216)) return sendJson(res,400,{error:'请上传PNG或JPEG图片'});
+    const ocr=await recognizeImage(image);
+    ocr.width=body.width;ocr.height=body.height;
+    const result=scheduleRecognition.readMonthChart(ocr,body.bars,Number(body.year));
+    audit(user.id,'schedule_recognized',String(body.sourcePlanId||''),{projectId:user.project_id,tasks:result.tasks.length,engine:result.engine});
+    return sendJson(res,200,result);
+  }
+  if (req.method === 'POST' && url.pathname === '/api/schedules/generate-weeks') {
+    if (!requireChangedUser(user,res)) return;
+    if (!canWriteStateKey(user,'zhuxu-plans')) return sendJson(res,403,{error:'当前岗位无计划写入权限'});
+    const body=await readJson(req),current=getState('zhuxu-plans',user.project_id)||[];
+    const source=current.find(p=>String(p.id)===String(body.source?.planId)&&p.level==='month'&&p.attachments?.some(a=>(a.storageKey||a.name)===body.source.fileKey));
+    if (!source) return sendJson(res,400,{error:'未找到当前项目的月计划原文件'});
+    if (!Array.isArray(body.result?.tasks)||body.result.tasks.length>500) return sendJson(res,400,{error:'识别任务数量无效'});
+    try {
+      const additions=scheduleRecognition.makePlans(body.result,body.source,current,scheduleRules),next=current.concat(additions);
+      scheduleRules.validatePlans(current,next,getState('zhuxu-daily-execution',user.project_id)||[]);
+      setState('zhuxu-plans',next,user.id,user.project_id);
+      audit(user.id,'schedule_weeks_generated',String(source.id),{count:additions.length});
+      return sendJson(res,200,{plans:next,added:additions.length});
+    } catch(error){return sendJson(res,409,{error:error.message});}
+  }
+  if (req.method === 'POST' && url.pathname === '/api/daily-execution/confirm') {
+    if (!requireChangedUser(user, res)) return;
+    const body = await readJson(req);
+    const plans = getState('zhuxu-plans', user.project_id) || [];
+    const plan = plans.find(item => String(item.id) === String(body.dayPlanId) && item.level === 'day' && !item.archived && item.start <= body.date && item.end >= body.date);
+    const tasks = getState('zhuxu-tasks', user.project_id) || [];
+    const related = plan && (String(plan.taskId || plan.id) === String(body.taskId) || (plan.taskIds || []).some(id => String(id) === String(body.taskId)) || tasks.some(task => String(task.id) === String(body.taskId) && String(task.dayPlanId) === String(plan.id)));
+    if (!related) return sendJson(res, 400, { error: '未找到该日期关联的日计划' });
+    try { scheduleRules.validateDay(plan, plans); }
+    catch (error) { return sendJson(res, 409, { error: error.message }); }
+    const records = getState('zhuxu-daily-execution', user.project_id) || [];
+    const index = records.findIndex(item => String(item.taskId) === String(body.taskId) && item.date === body.date);
+    try {
+      const record = meetingRules.confirm(index >= 0 ? records[index] : { taskId: Number(body.taskId), date: body.date, weekPlanId: plan.parentId, team: plan.team || '', plannedWorkers: 0, actualWorkers: 0, actualQuantity: '', materialPercent: 0, materialText: '', documentDone: 0, documentTotal: 0, documentText: '', note: '', feedbackPhotos: [] }, plan, body.actualCompletion, `${user.name} · ${user.role}`, nowIso());
+      if (index >= 0) records[index] = record; else records.push(record);
+      setState('zhuxu-daily-execution', records, user.id, user.project_id);
+      audit(user.id, 'meeting_completion_confirmed', `${body.date}:${body.taskId}`, { actualCompletion: record.actualCompletion, plannedTarget: record.plannedTarget });
+      return sendJson(res, 200, { record });
+    } catch (error) { return sendJson(res, 409, { error: error.message }); }
+  }
   const stateMatch = url.pathname.match(/^\/api\/state\/([^/]+)$/);
   if (req.method === 'PUT' && stateMatch) {
     const key = decodeURIComponent(stateMatch[1]);
@@ -587,6 +650,14 @@ async function handleApi(req, res, url) {
     if (key === COST_STATE_KEY && !canAccessCost(user)) { audit(user.id, 'permission_denied', COST_STATE_KEY); return sendJson(res, 403, { error: '当前岗位无成控文件读写权限' }); }
     if (!canWriteStateKey(user, key)) { audit(user.id, 'permission_denied', key); return sendJson(res, 403, { error: '当前岗位无此数据写入权限' }); }
     const body = await readJson(req);
+    if (key === 'zhuxu-daily-execution') {
+      try { meetingRules.validateUpdate(getState(key, user.project_id) || [], body.value); }
+      catch (error) { return sendJson(res, 409, { error: error.message }); }
+    }
+    if (key === 'zhuxu-plans') {
+      try { scheduleRules.validatePlans(getState(key, user.project_id) || [], body.value, getState('zhuxu-daily-execution', user.project_id) || []); }
+      catch (error) { return sendJson(res, 409, { error: error.message }); }
+    }
     setState(key, body.value, user.id, user.project_id);
     if (key === 'zhuxu-organization' && Array.isArray(body.value)) {
       const updateMember = db.prepare('UPDATE project_members SET role = ?, phone = ?, scope = ? WHERE project_id = ? AND user_id = ?');
@@ -609,6 +680,7 @@ async function handleApi(req, res, url) {
     const plan = plans.find(item => String(item.id) === decodeURIComponent(approvalMatch[1]));
     const stepIndex = Number(approvalMatch[2]); const step = plan?.approvalWorkflow?.[stepIndex];
     if (!plan || !step) return sendJson(res, 404, { error: '审批节点不存在' });
+    markRequesterApproval(plan.approvalWorkflow, plan);
     const currentIndex = plan.approvalWorkflow.findIndex((item, index) => item.status === 'pending' && plan.approvalWorkflow.slice(0, index).every(previous => previous.status === 'approved'));
     if (stepIndex !== currentIndex) return sendJson(res, 409, { error: '当前还未轮到该审批节点', currentIndex });
     if (String(step.ownerId || '') !== String(user.id)) return sendJson(res, 403, { error: `无权代办：当前节点由${step.owner}本人审批` });
@@ -631,6 +703,7 @@ async function handleApi(req, res, url) {
     const isRequester = String(requester || '') === `${user.name} · ${user.role}`;
     if (!isRequester && !isProjectManager(user)) return sendJson(res, 403, { error: '仅提报人或项目经理可撤回该计划' });
     plan.approvalWorkflow.forEach(step => { step.status = 'pending'; delete step.actedAt; delete step.actedBy; delete step.actedByAccount; });
+    markRequesterApproval(plan.approvalWorkflow, plan);
     setState('zhuxu-resource-plans', plans, user.id, user.project_id); audit(user.id, 'approval_withdrawn', `resource-plan:${plan.id}`, { projectId: user.project_id });
     return sendJson(res, 200, { resourcePlans: plans, plan });
   }
@@ -644,7 +717,9 @@ async function handleApi(req, res, url) {
     const cached = weatherCache.get(cacheKey);
     if (cached && Date.now() - cached.at < 10 * 60 * 1000) return sendJson(res, 200, cached.data);
     try {
-      const upstream = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code&timezone=Asia%2FShanghai`);
+      const archiveCutoff = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+      const weatherBaseUrl = end < archiveCutoff ? 'https://archive-api.open-meteo.com/v1/archive' : 'https://api.open-meteo.com/v1/forecast';
+      const upstream = await fetch(`${weatherBaseUrl}?latitude=${lat}&longitude=${lon}&start_date=${start}&end_date=${end}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code&timezone=Asia%2FShanghai`);
       if (!upstream.ok) throw new Error(`上游天气服务返回 ${upstream.status}`);
       const data = await upstream.json();
       const payload = { latitude: lat, longitude: lon, timezone: 'Asia/Shanghai', daily: data.daily || {} };

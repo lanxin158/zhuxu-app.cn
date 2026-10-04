@@ -91,9 +91,9 @@
       <nav class="nav-list">
         <button class="nav-item" data-view="schedule"><span class="nav-icon">▦</span><span>进度计划</span></button>
         <button class="nav-item active" data-view="intake"><span class="nav-icon">☷</span><span>每日任务执行</span><b class="warn" id="dailyBadge">0</b></button>
+        <button class="nav-item" type="button" data-daily-meeting><span class="nav-icon">▤</span><span>每日例会</span><b class="warn" id="meetingBadge">0</b></button>
         <button class="nav-item" data-view="technical"><span class="nav-icon">▧</span><span>技术文件</span><b id="technicalBadge">4</b></button>
         <button class="nav-item" data-view="cost"><span class="nav-icon">¥</span><span>成控文件</span><b id="costBadge">3</b></button>
-        <button class="nav-item" data-view="followups"><span class="nav-icon">↻</span><span>协作催办</span><b class="warn" id="followupBadge">3</b></button>
         <button class="nav-item" data-view="materials"><span class="nav-icon">◇</span><span>材料设备</span></button>
         <button class="nav-item" data-view="documents"><span class="nav-icon">▤</span><span>资料完成情况</span><b class="warn" id="documentBadge">2</b></button>
         <button class="nav-item" data-view="quality"><span class="nav-icon">◎</span><span>质量安全</span><b class="warn">3</b></button>
@@ -101,12 +101,12 @@
         <button class="nav-item" data-view="laborers"><span class="nav-icon">⛑</span><span>民工管理</span></button>
       </nav>
 
-      <div class="site-weather">
+      <button type="button" class="site-weather" id="weatherArchiveButton" aria-label="打开项目晴雨表">
         <div class="weather-row"><span class="weather-icon">☀</span><div><strong>31°C</strong><small>晴 · 东南风 2级</small></div></div>
-        <p>未来 8 小时无降雨，适合外立面施工</p>
-      </div>
+        <p>点击查看十二个月晴雨表及项目重要事件</p>
+      </button>
 
-      <div class="user-card" id="currentUserCard">
+      <div class="user-card" id="currentUserCard" role="button" tabindex="0" aria-label="查看当前账号基本信息">
         <div class="avatar" id="currentUserAvatar">陈</div>
         <div><strong id="currentUserName">陈海峰</strong><small id="currentUserRole">项目经理</small></div>
         <button type="button" id="accountSwitcherButton" aria-label="退出当前账号" title="退出当前账号">退出</button>
@@ -125,7 +125,6 @@
           <div class="sync-state"><i></i><span>数据已同步</span></div>
           <button class="icon-button" id="exportButton" title="导出项目数据" aria-label="导出项目数据">⇩</button>
           <button class="icon-button notification-button" id="notificationButton" aria-label="查看通知">♢<b>4</b></button>
-          <button class="primary-button" id="addTaskButton"><span>＋</span> 记录施工反馈</button>
         </div>
       </header>
 
@@ -262,7 +261,7 @@
       <label>责任人<input name="owner" list="organizationOwners" required placeholder="按组织架构匹配，可手工修改"></label>
       <div class="form-grid"><label>执行班组<input name="team" required placeholder="例如：钢筋班组"></label><label>任务状态<select name="status"><option value="todo">待开始</option><option value="doing">进行中</option><option value="done">已完成</option></select></label></div>
       <div class="form-grid"><label>计划投入人数<input name="plannedWorkers" type="number" min="0" required></label><label>实际到岗人数<input name="actualWorkers" type="number" min="0" required></label></div>
-      <div class="form-grid"><label>完成比例（%）<input name="progress" type="number" min="0" max="100" required></label><label>实际完成工程量<input name="actualQuantity" required placeholder="例如：梁板钢筋完成18.6t"></label></div>
+      <div class="form-grid"><label>实际完成率（由每日例会确认）<input name="progress" type="number" min="0" max="100" disabled></label><label>实际完成工程量<input name="actualQuantity" required placeholder="例如：梁板钢筋完成18.6t"></label></div>
       <section class="daily-feedback-gates">
         <div><strong>材料保障</strong><div class="form-grid"><label>满足程度（%）<input name="materialPercent" type="number" min="0" max="100" required></label><label>材料情况<input name="materialText" required></label></div></div>
         <div id="dailyDocumentGateField"><div class="daily-gate-title"><strong>资料条件</strong><span id="dailyDocumentConditionState">待判断</span></div><div class="form-grid"><label>已完成 / 应完成<input name="documentDone" type="number" min="0" required><input name="documentTotal" type="number" min="1" required></label><label>资料情况<input name="documentText" required></label></div></div>
@@ -285,10 +284,20 @@
     <form id="coordinationForm" method="dialog">
       <div class="dialog-heading"><div><span>班组提前提出</span><h2>登记明日必须协调的问题</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
       <label>关联明日任务<select name="taskId" id="coordinationTaskSelect"></select></label>
-      <div class="form-grid"><label>问题类别<select name="category"><option>材料未到场</option><option>图纸或技术问题</option><option>工作面未移交</option><option>设备未准备</option><option>人员不足</option><option>前置工序未完成</option><option>测量放线未完成</option><option>验收未完成</option><option>现场协调问题</option></select></label><label>提出班组<input name="requester" required></label></div>
+      <div class="form-grid"><label>问题类别<select name="category"><option>材料未到场</option><option>图纸或技术问题</option><option>工作面未移交</option><option>设备未准备</option><option>人员不足</option><option>前置工序未完成</option><option>测量放线未完成</option><option>验收未完成</option><option>现场协调问题</option></select></label><label>提出班组<select name="requester" required><option value="">请选择提出班组</option></select></label></div>
       <label>需要协调的问题<textarea name="content" rows="4" required placeholder="说明不解决会影响哪项工作"></textarea></label>
-      <div class="form-grid"><label>协调责任人<input name="owner" list="organizationOwners" required></label><label>最晚解决时间<input name="due" type="datetime-local" required></label></div>
+      <div class="form-grid"><label>责任工长<select name="foreman" required><option value="">请选择责任工长</option></select></label><label>协调责任人<select name="owner" required><option value="">请选择协调责任人</option></select></label></div>
+      <label>最晚解决时间<input name="due" type="datetime-local" required></label>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">提交协调问题</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="dailyMeetingDialog" class="wide-dialog daily-meeting-dialog">
+    <form id="dailyMeetingForm" method="dialog">
+      <div class="dialog-heading"><div><span>DAILY HUDDLE</span><h2>每日例会</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <label>例会日期<input id="dailyMeetingDateInput" type="date" required></label>
+      <div id="dailyMeetingBody" class="daily-meeting-body"></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存并同步明日计划</button></div>
     </form>
   </dialog>
 
@@ -310,7 +319,8 @@
       <label>发布人<input name="issuedBy" list="organizationOwners" required></label>
       <label>适用部位 / 范围<input name="scope" required placeholder="例如：3#楼 8F 梁板"></label>
       <label>主要内容<textarea name="content" rows="5" required placeholder="填写必须执行的技术要求、变更内容或联系事项"></textarea></label>
-      <label>上传原文件<input name="files" type="file" accept=".pdf,.dwg,.dxf,.doc,.docx,.xls,.xlsx,image/*" multiple><small>支持 PDF、CAD、Word、Excel 和图片，上传后项目成员均可查看。</small></label>
+      <label>上传原文件<input name="files" type="file" accept=".pdf,.dwg,.dxf,.doc,.docx,.xls,.xlsx,image/*" multiple><small>支持 PDF、CAD、Word、Excel 和图片；编辑时可删除旧文件并重新上传。</small></label>
+      <div class="technical-file-draft-list" id="technicalFileDraftList"></div>
       <div class="drawing-folder-upload"><button type="button" class="secondary-button" id="drawingFolderButton">＋ 直接上传图纸文件夹</button><small id="drawingFolderState">选择文件夹后确认归属单体，按“单体 / 专业 / 图纸”目录结构自动归档</small><input class="visually-hidden" id="drawingFolderInput" type="file" webkitdirectory multiple></div>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存技术文件</button></div>
     </form>
@@ -445,28 +455,29 @@
 
   <dialog id="planDialog">
     <form id="planForm" method="dialog">
-      <div class="dialog-heading"><div><span>四级进度计划</span><h2>新建或导入计划</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
-      <div class="intake-switcher"><button type="button" class="active" data-plan-mode="manual">手工新建</button><button type="button" data-plan-mode="import">文件导入识别</button></div>
-      <section class="intake-panel" id="planImportPanel" hidden>
-        <label class="import-dropzone" data-dropzone data-for="planImportInput" for="planImportInput"><strong>导入 PDF、图片、Excel、Word 或 CSV</strong><small>拖拽文件到此处，或点击选择；系统提取工作名称和日期，识别结果可修改后写入计划</small></label>
-        <input class="visually-hidden" id="planImportInput" type="file" accept=".pdf,image/*,.xlsx,.xls,.csv,.docx,.txt">
-        <div class="recognition-state" id="planRecognitionState">尚未选择文件</div>
-      </section>
-      <div class="recognition-candidates" id="planRecognitionCandidates"></div>
-      <div class="form-grid"><label>计划层级<select name="level"><option value="master">总计划</option><option value="month">月计划</option><option value="week" selected>周计划</option><option value="day">日计划</option></select></label><label id="planOwnerRoleField">责任岗位<select name="ownerRole"><option>生产经理</option><option>项目经理</option><option>土建工程师</option><option>机电工程师</option></select></label><label id="planOwnersField" hidden>责任人<input name="owners" list="organizationOwners" placeholder="可多选，用、分隔"></label><label id="planTeamField" hidden>责任班组<input name="team" placeholder="例如：钢筋班组"></label><label id="planDailyTargetField" hidden>当日完成百分比<input name="dailyTarget" type="number" min="0" max="100" placeholder="例如：100"></label></div>
+      <div class="dialog-heading"><div><span>DAILY WORK PLAN</span><h2>批量编制日计划</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <select name="level" hidden><option value="day" selected>日计划</option></select>
+      <input name="title" type="hidden">
+      <input name="compiler" type="hidden">
+      <select name="ownerRole" hidden><option selected>生产经理</option></select>
+      <input name="owners" type="hidden">
+      <input name="team" type="hidden">
+      <input name="dailyTarget" type="hidden" value="100">
+      <label id="planCompilerField" hidden>编制人<input name="compilerLegacy" list="organizationOwners"></label>
+      <label id="planOwnerRoleField" hidden></label><label id="planOwnersField" hidden></label><label id="planTeamField" hidden></label><label id="planDailyTargetField" hidden></label>
       <label id="parentWeekPlanField" hidden>所属周计划<select name="parentId"><option value="">系统按日期自动匹配</option></select><small class="match-hint">日计划必须归入周计划，才能自动判断周进度是否滞后。</small></label>
-      <label>工作名称<input name="title" required placeholder="例如：3#楼 9F 主体结构"></label>
-      <section class="plan-subtasks" id="planSubtasksSection">
-        <div class="plan-subtasks-heading"><div><strong>计划子任务（可选）</strong><small>一个计划可包含多个子任务，保存后自动拆分为每日执行里的独立任务；只需调整责任人 / 责任班组</small></div><button type="button" class="secondary-button" id="addPlanSubtaskButton">＋ 添加子任务</button></div>
-        <div id="planSubtaskList"></div>
+      <div class="plan-date-row"><label>执行日期<input type="date" name="start" required></label><input type="date" name="end" hidden></div>
+      <section class="plan-day-batch" id="planDayRowsSection">
+        <div class="plan-day-batch-heading"><div><strong>当天施工内容</strong><small>一次填写多项工作，每项分别明确完成比例、责任人和责任班组</small></div><button type="button" class="secondary-button" id="addPlanDayRowButton">＋ 添加一项工作</button></div>
+        <div class="plan-day-row-head"><span>施工内容</span><span>需完成</span><span>责任人</span><span>责任班组</span><span></span></div>
+        <div id="planDayRowsList"></div>
       </section>
-      <div class="form-grid"><label>开始日期<input type="date" name="start" required></label><label>完成日期<input type="date" name="end" required></label></div>
-      <label class="import-dropzone plan-attachment-dropzone" data-dropzone data-for="planAttachmentInput"><strong>上传计划表原文件（可选）</strong><small>拖拽或点击上传进度表、横道图等原文件，保存后可在计划列表中随时在线查看</small></label>
-      <input class="visually-hidden" id="planAttachmentInput" type="file" multiple accept=".pdf,image/*,.xlsx,.xls,.csv,.docx,.txt,.png,.jpg,.jpeg,.webp,.gif,.bmp">
-      <div class="plan-attachment-list" id="planAttachmentList"></div>
-      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">更新计划</button></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="button" class="secondary-button" id="cancelEditingPlanButton" hidden>撤销此计划</button><button type="submit" class="primary-button">保存日计划</button></div>
     </form>
   </dialog>
+
+  <input class="visually-hidden" id="masterPlanFileInput" type="file" accept=".pdf,image/*,.xlsx,.xls,.doc,.docx,.mpp,.xer">
+  <input class="visually-hidden" id="periodPlanFileInput" type="file" accept=".pdf,image/*,.xlsx,.xls,.doc,.docx,.mpp,.xer">
 
   <dialog id="organizationDialog">
     <form id="organizationForm" method="dialog">
@@ -481,14 +492,8 @@
     <form id="resourceEntryForm" method="dialog">
       <div class="dialog-heading"><div><span id="resourceEntryEyebrow">材料进场登记</span><h2 id="resourceEntryTitle">登记材料到场</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
       <input type="hidden" name="resourceType" value="material">
-      <div class="form-grid"><label>名称<input name="name" required placeholder="例如：HRB400E 钢筋"></label><label>类别<select name="category" id="resourceCategory"></select></label></div>
-      <div class="form-grid"><label>品牌 / 生产厂家<input name="brand" required></label><label>规格 / 型号<input name="spec" required></label></div>
-      <div class="form-grid"><label>进出场类型<select name="movement"><option>进场</option><option>退场</option></select></label><label>到场时间<input type="datetime-local" name="arrivalTime" required></label></div>
-      <div class="form-grid"><label>数量<input name="quantity" required placeholder="例如：32.5 t / 1 台"></label><label>使用部位 / 安装位置<input name="location" required></label></div>
-      <label>关联材料设备计划<select name="planId" id="resourcePlanMatch"><option value="">系统自动匹配最接近的未完成计划</option></select><small class="match-hint" id="resourcePlanMatchHint">填写名称和使用部位后，系统会推荐对应计划；也可手动选择</small></label>
-      <label id="certificateLabel">合格证、检测报告或备案资料<input type="file" name="certificates" accept=".pdf,image/*" multiple></label>
-      <label>见证取样、验收或设备检查照片<input type="file" name="photos" accept="image/*" capture="environment" multiple></label>
-      <label>备注<textarea name="note" rows="2"></textarea></label>
+      <div class="resource-entry-batch-toolbar"><div><strong>批量登记到场记录</strong><small>先一次添加多条，再逐条填写；保存后仍按单条记录显示并分别累计到关联计划。</small></div><button type="button" class="secondary-button" data-add-resource-entry-row>＋ 添加一条</button></div>
+      <div id="resourceEntryBatchRows" class="resource-entry-batch-rows"></div>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存登记</button></div>
     </form>
   </dialog>
@@ -499,7 +504,8 @@
       <input type="hidden" name="planId">
       <div class="form-grid"><label>资源类型<select name="type"><option value="material">材料</option><option value="equipment">设备</option></select></label><label>名称<input name="name" required></label></div>
       <div class="form-grid"><label>计划数量<input name="quantity" required></label><label>要求到场日期<input type="date" name="due" required></label></div>
-      <div class="form-grid"><label>使用部位<input name="location" required></label><label>责任岗位<select name="ownerRole" id="resourcePlanOwnerRole"></select></label></div>
+      <div class="form-grid"><label>使用部位<input name="location" required></label><label>责任人<select name="owner" id="resourcePlanOwner" required></select></label></div>
+      <input type="hidden" name="ownerRole" id="resourcePlanOwnerRole">
       <section class="resource-plan-material-fields" id="resourcePlanMaterialFields">
         <div class="section-form-heading"><div><strong>合同品牌要求</strong><small>明确合同是否指定品牌，避免采购后再返审</small></div></div>
         <div class="form-grid"><label>合同是否要求品牌<select name="contractBrandRequired"><option value="no">否</option><option value="yes">是</option></select></label><label id="contractBrandNameLabel" hidden>合同要求品牌名称<input name="contractBrand" placeholder="例如：沙钢、宝武；多个品牌用顿号分隔"></label></div>
@@ -524,6 +530,19 @@
     </form>
   </dialog>
 
+  <dialog id="materialDocumentReviewDialog" class="wide-dialog">
+    <form id="materialDocumentReviewForm" method="dialog">
+      <div class="dialog-heading"><div><span>材料进场资料闭环</span><h2 id="materialDocumentReviewTitle">核查进场资料</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <input type="hidden" name="entryId">
+      <div id="materialDocumentReviewSummary" class="material-document-review-summary"></div>
+      <label>资料是否缺失？<select name="status" required><option value="">请选择核查结果</option><option value="pending">尚未核查，仅补充上传</option><option value="complete">否，资料齐全</option><option value="missing">是，有缺失资料</option></select></label>
+      <label>缺少资料说明（资料不全时填写）<textarea name="missingItems" rows="3" placeholder="例如：钢筋合格证、复试报告、厂家质保书"></textarea></label>
+      <div class="form-grid"><label>材料员<select name="materialClerk"></select></label><label>责任工长<select name="foreman"></select></label></div>
+      <label>补充上传资料（资料员补齐后上传）<input name="files" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" multiple><small>补充文件会同步回材料登记台账；已有文件不会被删除。</small></label>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存核查并同步</button></div>
+    </form>
+  </dialog>
+
   <dialog id="attachmentPreviewDialog">
     <form method="dialog">
       <div class="dialog-heading"><div><span>资料附件</span><h2 id="attachmentPreviewTitle">查看附件</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
@@ -539,6 +558,32 @@
       <label>城市<input name="city" placeholder="例如：兰州" required></label>
       <div class="form-grid"><label>纬度<input name="latitude" type="number" step="0.01" min="-90" max="90" required></label><label>经度<input name="longitude" type="number" step="0.01" min="-180" max="180" required></label></div>
       <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存并刷新</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="weatherArchiveDialog" class="wide-dialog weather-archive-dialog">
+    <form method="dialog">
+      <div class="dialog-heading"><div><span>项目施工气象档案</span><h2>十二个月晴雨表</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div id="weatherArchiveBody"></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-weather-setting>设置地点</button><button type="button" class="secondary-button" data-weather-milestone>登记重要事件</button><button type="button" class="primary-button" data-close-dialog>关闭</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="weatherMilestoneDialog">
+    <form id="weatherMilestoneForm" method="dialog">
+      <div class="dialog-heading"><div><span>晴雨表重要事件</span><h2>登记项目里程碑</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <label>事件名称<input name="title" required placeholder="例如：基础验收、主体封顶"></label>
+      <div class="form-grid"><label>事件日期<input name="date" type="date" required></label><label>事件类型<select name="type"><option value="planned">计划节点</option><option value="actual">实际节点</option><option value="acceptance">验收节点</option><option value="milestone">重大里程碑</option></select></label></div>
+      <label>事件说明<textarea name="note" rows="3" placeholder="记录验收范围、参与单位或节点说明"></textarea></label>
+      <div class="dialog-actions"><button type="button" class="secondary-button" data-close-dialog>取消</button><button type="submit" class="primary-button">保存事件</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="weatherMilestoneDetailDialog">
+    <form method="dialog">
+      <div class="dialog-heading"><div><span>项目重要事件</span><h2 id="weatherMilestoneDetailTitle">里程碑详情</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div id="weatherMilestoneDetailBody"></div>
+      <div class="dialog-actions"><button type="button" class="secondary-button" id="deleteWeatherMilestone">删除事件</button><button type="button" class="primary-button" data-close-dialog>关闭</button></div>
     </form>
   </dialog>
 
@@ -788,6 +833,14 @@
     </form>
   </dialog>
 
+  <dialog id="currentUserDialog">
+    <form method="dialog">
+      <div class="dialog-heading"><div><span>当前账号</span><h2>基本信息与催办提醒</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+      <div id="currentUserDialogBody" class="current-user-dialog-body"></div>
+      <div class="dialog-actions"><button type="button" class="primary-button" data-close-dialog>关闭</button></div>
+    </form>
+  </dialog>
+
   <dialog id="projectSwitchDialog">
     <form method="dialog">
       <div class="dialog-heading"><div><span>多项目管理</span><h2>切换项目系统</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
@@ -819,7 +872,17 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <dialog id="todoDialog" class="wide-dialog"><form method="dialog">
+    <div class="dialog-heading"><div><span>待办事项</span><h2 id="todoDialogTitle">我的待办</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="关闭">×</button></div>
+    <p id="todoDialogScope"></p><div id="todoDialogBody"></div>
+    <div class="dialog-actions"><button type="submit" class="secondary-button">关闭</button></div>
+  </form></dialog>
   <script src="vendor/jszip.min.js"></script>
+  <script src="meeting-rules.js"></script>
+  <script src="schedule-rules.js"></script>
+  <script src="schedule-recognition.js"></script>
+  <script src="schedule-recognition-ui.js"></script>
+  <script src="schedule-ui.js"></script>
   <script src="server-bridge.js"></script>
 </body>
 </html>

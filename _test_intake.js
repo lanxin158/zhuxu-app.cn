@@ -120,7 +120,11 @@ async function login(page) {
 
   await page.locator('[data-view="technical"]').click();
   if (!(await page.locator('#technical.active').isVisible())) throw new Error('技术文件页面未打开');
-  if (await page.locator('#technical .technical-file-row[data-technical-document]').count() !== 4) throw new Error('四类默认技术文件未进入共享台账');
+  if (await page.locator('#technical .technical-file-row[data-technical-document], #technical .technical-file-row[data-open-drawing]').count() !== 4) throw new Error('四类默认技术文件未进入共享台账');
+  await page.locator('#technicalSearchInput').fill('梁板洞口');
+  await page.locator('#technical [data-technical-search-submit]').click();
+  if (await page.locator('#technical .technical-file-row').filter({ hasText: '梁板洞口附加筋调整' }).count() !== 1) throw new Error('技术文件关键词查找失败');
+  await page.locator('#technical [data-technical-search-clear]').click();
   await page.locator('#technical [data-technical-filter="change"]').click();
   if (await page.locator('#technical .technical-file-row[data-technical-document]').count() !== 1) throw new Error('设计变更筛选失败');
   await page.locator('#technical .technical-file-row[data-technical-document]').click();
@@ -129,10 +133,10 @@ async function login(page) {
   await page.locator('#technical [data-technical-overview-filter="drawing"]').click();
   if (await page.locator('#technical .technical-building-folders [data-technical-building]').count() !== 1) throw new Error('施工图未按单体建立文件夹');
   await page.locator('#technical .technical-building-folders [data-technical-building="3#楼"]').click();
-  if (await page.locator('#technical .technical-file-row[data-technical-document]').count() !== 1) throw new Error('单体文件夹内未显示施工图');
-  await page.locator('#technical .technical-file-row[data-technical-document]').click();
-  if (!(await page.locator('#technicalDocumentDetailDialog[open]').getByText('施工图原文件', { exact: false }).isVisible())) throw new Error('施工图详情不能查看原文件');
-  await page.locator('#technicalDocumentDetailDialog [data-close-dialog]').first().click();
+  if (await page.locator('#technical .technical-profession-tabs').count()) throw new Error('施工图“全部”专业筛选应取消');
+  await page.locator('#technical .technical-building-folders [data-technical-profession]').first().click();
+  if (await page.locator('#technical .technical-file-row[data-open-drawing]').count() !== 1) throw new Error('专业子文件夹内未显示施工图');
+  if (await page.locator('#technical .technical-file-row[data-technical-document]').count()) throw new Error('施工图仍会进入详情对话框');
   await page.screenshot({ path: path.join(root, 'qa-technical-folders.png'), fullPage: true });
 
   await page.locator('[data-view="cost"]').click();

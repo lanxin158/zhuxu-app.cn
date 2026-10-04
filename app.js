@@ -299,6 +299,15 @@ let currentUserId = authenticatedUserId || (serverMode ? '' : 'pm');
 if (!serverMode && !organization.some(person => String(person.id) === String(currentUserId))) currentUserId = organization[0]?.id || '';
 if (!serverMode && !organization.some(person => String(person.id) === String(authenticatedUserId))) authenticatedUserId = '';
 const approvalSequenceRoles = ['提报人', '生产经理', '技术负责人', '库管', '项目经理'];
+function markRequesterApproval(workflow = [], plan = {}) {
+  const requesterStep = workflow.find(step => step.role === '提报人');
+  if (!requesterStep) return workflow;
+  requesterStep.status = 'approved';
+  requesterStep.actedAt = requesterStep.actedAt || plan.createdAt || new Date().toISOString();
+  requesterStep.actedBy = requesterStep.actedBy || requesterStep.owner || plan.requester || '';
+  requesterStep.actedByAccount = requesterStep.actedByAccount || '';
+  return workflow;
+}
 resourcePlans = resourcePlans.map(plan => {
   if (plan.type !== 'material') return plan;
   const existingWorkflow = Array.isArray(plan.approvalWorkflow) ? plan.approvalWorkflow : [];
@@ -317,6 +326,7 @@ resourcePlans = resourcePlans.map(plan => {
     ...step,
     ownerId: step.ownerId || organization.find(person => `${person.name} · ${person.role}` === step.owner)?.id || ''
   }));
+  markRequesterApproval(normalizedWorkflow, plan);
   return { contractBrandRequired: false, contractBrand: '', approvalAttachments: [], ...plan, requester: sequenceMatches ? requester : normalizedWorkflow[0].owner, purchaser, approvalAttachments: plan.approvalAttachments || [], approvalWorkflow: normalizedWorkflow };
 });
 concealedAcceptances = concealedAcceptances.map(item => ({ documentAttachments: [], photoAttachments: [], status: 'pending', ...item }));
@@ -348,19 +358,31 @@ let activeIntakeFilter = 'all';
 let activeTechnicalFilter = 'all';
 let activeTechnicalBuilding = 'all';
 let activeTechnicalProfession = 'all';
+let activeTechnicalSearch = '';
 let activeCostFilter = 'all';
 let activeExecutionDate = dailyDateKey;
+let dailyMeetingDate = dailyDateKey;
+let dailyMeetingPlanDraft = [];
+let dailyMeetingCoordinationDraft = [];
+let dailyMeetingTodayDraft = [];
+let activeScheduleMonth = Number(dailyDateKey.slice(5, 7));
+let activeScheduleYear = Number(dailyDateKey.slice(0, 4));
 let editingResourcePlanId = null;
+let resourceEntryBatchDraft = [];
 let editingConcealedAcceptanceId = null;
 let editingQualityId = null;
 let editingInspectionId = null;
 let editingTaskId = null;
 let editingPlanId = null;
+let editingTechnicalDocumentId = null;
 let editingIntakeId = null;
 let editingLaborerId = null;
 let planRecognitionCandidates = [];
 let planAttachmentsDraft = [];
 let planSubtasksDraft = [];
+let planDayRowsDraft = [];
+let pendingPeriodPlanUpload = null;
+let planPreviewUrls = [];
 let planUndoStack = [];
 let taskRecognitionCandidates = [];
 let selectedPhotos = [];
@@ -373,8 +395,21 @@ let activeAttachmentUrl = null;
 let mustChangePassword = false;
 let serverAccounts = [];
 let pendingDrawingFiles = [];
+let technicalFilesDraft = [];
+let linkingTechnicalTaskId = null;
+let linkingTechnicalTaskDate = null;
 let weatherConfig = JSON.parse(localStorage.getItem('zhuxu-weather-config') || 'null') || { city: '兰州', latitude: 36.06, longitude: 103.83 };
 let weatherData = JSON.parse(localStorage.getItem('zhuxu-weather') || 'null') || null;
+let weatherArchive = JSON.parse(localStorage.getItem('zhuxu-weather-archive') || '{}') || {};
+let weatherMilestones = JSON.parse(localStorage.getItem('zhuxu-weather-milestones') || 'null') || (serverMode ? [] : [
+  { id: 1601, title: '计划开工日期', date: `${activeScheduleYear}-03-01`, type: 'planned', note: '经批准的项目总进度计划开工节点。' },
+  { id: 1602, title: '实际开工日期', date: `${activeScheduleYear}-03-06`, type: 'actual', note: '现场正式开始施工作业。' },
+  { id: 1603, title: '基础验收', date: `${activeScheduleYear}-06-18`, type: 'acceptance', note: '基础分部工程验收节点。' },
+  { id: 1604, title: '主体结构验收', date: `${activeScheduleYear}-11-20`, type: 'acceptance', note: '主体结构分部工程计划验收节点。' },
+  { id: 1605, title: '主体封顶', date: `${activeScheduleYear}-12-08`, type: 'milestone', note: '主体结构封顶里程碑。' }
+]);
+let activeWeatherMonth = Number(dailyDateKey.slice(5, 7));
+let activeWeatherMilestoneId = null;
 
 const $ = (selector, context = document) => context.querySelector(selector);
 const $$ = (selector, context = document) => [...context.querySelectorAll(selector)];
@@ -399,6 +434,10 @@ function syncAllLocalState() {
 
 function persistOrganization() { localStorage.setItem('zhuxu-organization', JSON.stringify(organization)); syncServerState('zhuxu-organization', organization); }
 function persistPlans() { localStorage.setItem('zhuxu-plans', JSON.stringify(plans)); syncServerState('zhuxu-plans', plans); }
+function persistMaterialEntries() {
+  localStorage.setItem('zhuxu-resource-entries', JSON.stringify(resourceEntries));
+  syncServerState('zhuxu-resource-entries', resourceEntries);
+}
 function persistResources() {
   localStorage.setItem('zhuxu-resource-entries', JSON.stringify(resourceEntries));
   localStorage.setItem('zhuxu-resource-plans', JSON.stringify(resourcePlans));
@@ -433,16 +472,33 @@ function persistCostDocuments() {
 }
 function persistDailyExecution() { localStorage.setItem('zhuxu-daily-execution', JSON.stringify(dailyExecution)); syncServerState('zhuxu-daily-execution', dailyExecution); }
 function persistDailyCoordination() { localStorage.setItem('zhuxu-daily-coordination', JSON.stringify(dailyCoordination)); syncServerState('zhuxu-daily-coordination', dailyCoordination); updateDailyBadge(); }
-function updateDailyBadge() { if ($('#dailyBadge')) $('#dailyBadge').textContent = dailyCoordination.filter(item => item.status !== 'resolved').length; }
+function updateDailyBadge() {
+  const pending = dailyCoordination.filter(item => item.status !== 'resolved');
+  if ($('#dailyBadge')) $('#dailyBadge').textContent = pending.length;
+  const tomorrow = shiftDateKey(dailyDateKey, 1);
+  if ($('#meetingBadge')) $('#meetingBadge').textContent = pending.filter(item => String(item.due || '').startsWith(tomorrow)).length;
+}
 
 function ensureMaterialDocumentChain(entry) {
   if (!entry || entry.type !== 'material' || entry.movement !== '进场') return null;
+  const responsible = matchResponsible(`${entry.name || ''} ${entry.location || ''}`);
+  const documentClerk = organization.find(person => person.role === '资料员') || null;
+  entry.materialDocumentReview = entry.materialDocumentReview || {
+    status: 'pending',
+    missingItems: [],
+    reviewer: documentClerk ? organizationPersonLabel(documentClerk) : '',
+    materialClerk: matchPersonByRole('材料员'),
+    foreman: responsible?.owner || matchPersonByRole('施工员'),
+    reviewedAt: '',
+    feedbackAt: '',
+    closedAt: ''
+  };
   let key = Object.keys(documentState).find(item => Number(documentState[item].materialEntryId) === Number(entry.id));
   if (!key) {
     key = `material-${entry.id}`;
     const resultId = `${key}-report`;
     documentState[key] = { sampleStatus: 'testing', linkedProcess: `${entry.location}关联施工`, materialEntryId: entry.id, commissionAttachments: [], reportAttachments: [], documents: [
-      { id: `${key}-certificate`, name: `${entry.name}合格证明`, trigger: `${entry.name}进场`, owner: '材料员', due: '进场当日', status: entry.attachments?.length ? 'done' : 'pending' },
+      { id: `${key}-certificate`, name: `${entry.name}合格证明`, trigger: `${entry.name}进场`, owner: '资料员', due: '进场资料核查', status: entry.materialDocumentReview.status === 'complete' ? 'done' : 'pending' },
       { id: `${key}-entry`, name: `${entry.name}进场验收记录`, trigger: `${entry.name}进场`, owner: '材料员', due: '进场当日', status: 'done' },
       { id: `${key}-commission`, name: `${entry.name}送检委托单`, trigger: `${entry.name}进场`, owner: '试验员', due: '24小时内', status: 'pending' },
       { id: resultId, name: `${entry.name}检测报告`, trigger: '委托送检', owner: '资料员', due: '使用前', status: 'pending' }
@@ -628,6 +684,39 @@ async function logoutCurrentUser() {
   setAuthenticationView(false);
 }
 
+function currentUserNotifications() {
+  return ZhuxuMeetingRules.todos({ 'zhuxu-followups': followups, 'zhuxu-daily-coordination': dailyCoordination, 'zhuxu-resource-plans': resourcePlans, 'zhuxu-document-state': documentState, 'zhuxu-quality-checks': qualityChecks }, getCurrentUser());
+}
+
+async function openTodoDialog() {
+  const dialog = $('#todoDialog');
+  $$('dialog[open]').forEach(item => { if (item !== dialog) item.close(); });
+  $('#todoDialogTitle').textContent = ZhuxuMeetingRules.canSeeAll(getCurrentUser()) ? '项目全部待办' : '我的待办';
+  $('#todoDialogScope').textContent = '正在读取待办事项…';
+  $('#todoDialogBody').replaceChildren();
+  if (!dialog.open) dialog.showModal();
+  try {
+    const items = window.ZhuxuServer?.active ? (await window.ZhuxuServer.request('/api/todos')).items : currentUserNotifications();
+    $('#todoDialogScope').textContent = `共 ${items.length} 项待办；${ZhuxuMeetingRules.canSeeAll(getCurrentUser()) ? '你可以查看当前项目全部待办' : '仅显示分配给你的待办'}`;
+    $('#notificationButton b').textContent = String(items.length);
+    $('#todoDialogBody').innerHTML = items.map((item, index) => `<article class="user-notification"><i>!</i><div><strong>${escapeHtml(item.title || '待办理事项')}</strong><small>${escapeHtml(item.category)} · 责任人：${escapeHtml(item.owner || '待指定')}</small><p>${escapeHtml(item.note || '')}${item.due ? ` · 时限：${escapeHtml(item.due)}` : ''}</p><button type="button" class="secondary-button" data-todo-index="${index}">查看事项</button></div></article>`).join('') || '<p class="resource-empty">暂无待办事项</p>';
+    $$('[data-todo-index]', dialog).forEach(button => button.addEventListener('click', () => {
+      const item = items[Number(button.dataset.todoIndex)]; dialog.close();
+      if (item.target === 'material') openResourceEntryDetail(item.targetId);
+      else if (item.target === 'plan') openResourcePlanDetail(item.targetId);
+      else if (item.target === 'documents') { activeDocumentChain = item.targetId; navigate('documents'); }
+      else if (item.target === 'quality') { navigate('quality'); openQualityCheckDialog(qualityChecks.find(row => String(row.id) === String(item.targetId))); }
+      else if (item.target === 'coordination') { activeExecutionDate = String(item.due || dailyDateKey).slice(0, 10); navigate('intake'); $('.tomorrow-coordination')?.scrollIntoView({ block: 'start' }); }
+      else {
+        $('#todoDialogTitle').textContent = item.title || '待办详情';
+        $('#todoDialogScope').textContent = `责任人：${item.owner || '待指定'}`;
+        $('#todoDialogBody').innerHTML = `<p>${escapeHtml(item.note || item.relatedTask || '暂无补充说明')}</p><p>时限：${escapeHtml(item.due || '未指定')} · 状态：${escapeHtml(item.status || '待处理')}</p>`;
+        dialog.showModal();
+      }
+    }));
+  } catch (error) { $('#todoDialogScope').textContent = `待办读取失败：${error.message || '请重试'}`; }
+}
+
 function renderCurrentUser() {
   const person = getCurrentUser();
   if (!person || !$('#currentUserCard')) return;
@@ -635,8 +724,37 @@ function renderCurrentUser() {
   $('#currentUserName').textContent = person.name;
   $('#currentUserRole').textContent = person.role;
   $('#accountSwitcherButton').title = `当前账号：${person.account || person.name}，点击退出`;
+  const notifications = currentUserNotifications();
+  $('#notificationButton b').textContent = String(notifications.length);
+  $('#notificationButton').setAttribute('aria-label', `查看待办事项，共 ${notifications.length} 项`);
+  const card = $('#currentUserCard');
+  card.classList.toggle('has-notification', notifications.length > 0);
+  card.setAttribute('aria-label', `查看${person.name}基本信息${notifications.length ? `，有${notifications.length}条待处理催办提醒` : ''}`);
+  let badge = card.querySelector('.user-alert-badge');
+  if (!badge) {
+    badge = document.createElement('b');
+    badge.className = 'user-alert-badge';
+    badge.setAttribute('aria-hidden', 'true');
+    card.appendChild(badge);
+  }
+  badge.hidden = notifications.length === 0;
+  badge.textContent = String(Math.min(99, notifications.length));
   updateCostAccessUI();
   updateAccountPermissionUI();
+}
+
+function openCurrentUserDialog() {
+  const dialog = $('#currentUserDialog');
+  const person = getCurrentUser();
+  if (!dialog || !person) return;
+  const notifications = currentUserNotifications();
+  const notificationMarkup = notifications.length
+    ? notifications.map(item => `<article class="user-notification ${item.notificationStatus === 'unread' ? 'unread' : ''}"><i aria-hidden="true">!</i><div><strong>${escapeHtml(item.title || '待处理催办')}</strong><small>${escapeHtml(item.category || '协作提醒')} · 责任人：${escapeHtml(item.owner || '未指定')}</small><p>${escapeHtml(item.note || item.relatedTask || `要求 ${item.due || '尽快'} 前完成`)}</p>${item.materialDocumentReview && item.materialEntryId ? `<button type="button" class="secondary-button" data-notification-material="${item.materialEntryId}">查看材料资料</button>` : ''} </div></article>`).join('')
+    : '<p class="resource-empty">暂无待处理催办提醒</p>';
+  $('#currentUserDialogBody').innerHTML = `<section class="current-user-summary"><div class="avatar">${escapeHtml(person.name.slice(0, 1))}</div><div><strong>${escapeHtml(person.name)}</strong><span>${escapeHtml(person.role)}</span><small>账号：${escapeHtml(person.account || '未设置')}</small><small>管理范围：${escapeHtml(person.scope || '项目综合管理')}</small></div></section><section class="current-user-notifications"><div class="current-user-notification-heading"><strong>催办提醒</strong><b class="${notifications.length ? 'has-alert' : ''}">${notifications.length ? `${notifications.length} 条待处理` : '暂无待处理'}</b></div>${notificationMarkup}</section>`;
+  $$('dialog[open]').forEach(item => { if (item !== dialog) item.close(); });
+  if (!dialog.open) dialog.showModal();
+  $$('[data-notification-material]', dialog).forEach(button => button.addEventListener('click', () => { dialog.close(); openResourceEntryDetail(button.dataset.notificationMaterial); }));
 }
 
 function isServerAccountAdmin(person = getCurrentUser()) {
@@ -944,8 +1062,9 @@ function persistFollowups() {
   localStorage.setItem('zhuxu-followups', JSON.stringify(followups));
   syncServerState('zhuxu-followups', followups);
   const pending = followups.filter(item => item.status !== 'done').length;
-  $('#followupBadge').textContent = pending;
-  $('#notificationButton b').textContent = Math.min(99, pending + 1);
+  if ($('#followupBadge')) $('#followupBadge').textContent = pending;
+  $('#notificationButton b').textContent = String(currentUserNotifications().length);
+  if ($('#currentUserCard')) renderCurrentUser();
 }
 
 function defaultDueValue() {
@@ -1088,7 +1207,7 @@ const subviews = {
   followups: { title: '协作催办', desc: '资料员和管理人员可以对缺失资料、前置工序及现场配合发起催办', action: '发起催办', content: 'followups' },
   materials: { title: '材料与设备', desc: '材料、设备分别建账，并用资源计划提前暴露供需缺口', action: '登记资源', content: 'resources' },
   documents: { title: '资料完成情况', desc: '让材料、送检、验收资料成为施工进度的放行条件', action: '登记资料结果', content: 'documents' },
-  quality: { title: '质量安全', desc: '问题发现、整改、复验全程留痕', action: '新增检查', content: 'quality' },
+  quality: { title: '质量安全', desc: '问题发现、整改、复验全程留痕', action: '上传照片', content: 'quality' },
   team: { title: '组织架构', desc: '明确项目管理人员职责与岗位授权', action: '编辑管理人员', content: 'team' },
   laborers: { title: '民工管理', desc: '劳资员维护民工花名册，考勤表自动匹配实名制人员', action: '登记民工', content: 'laborers' }
 };
@@ -1119,12 +1238,13 @@ function getPlanExecutionRecord(plan) {
   if (taskList.length > 1) {
     const records = taskList.map(task => dailyExecution.find(item => Number(item.taskId) === Number(task.id) && item.date === plan.start)).filter(Boolean);
     if (records.length) {
-      const progress = Math.round(records.reduce((sum, record) => sum + Number(record.progress || 0), 0) / records.length);
+      const progress = Math.round(records.reduce((sum, record) => sum + ZhuxuMeetingRules.progress(record), 0) / taskList.length);
       return { ...records[0], progress, aggregated: true };
     }
   }
-  return dailyExecution.find(item => Number(item.dayPlanId) === Number(plan.id))
+  const record = dailyExecution.find(item => Number(item.dayPlanId) === Number(plan.id) && item.date === plan.start)
     || dailyExecution.find(item => Number(item.taskId) === Number(plan.taskId) && item.date === plan.start);
+  return record ? { ...record, progress: ZhuxuMeetingRules.progress(record) } : null;
 }
 
 function renderPlanRow(plan, groupedDay = false) {
@@ -1143,7 +1263,7 @@ function renderPlanRow(plan, groupedDay = false) {
   } else {
     metaColumns = `<span>${escapeHtml(plan.start)}</span><span>${escapeHtml(plan.end)}</span><span>${escapeHtml(plan.ownerRole || '待明确')}</span>`;
   }
-  return `<article class="plan-row${isDay ? ' day-plan-row' : ''}${isWeek ? ' week-plan-row' : ''}"><div><strong>${escapeHtml(plan.title)}</strong><small>来源：${escapeHtml(plan.source || '手工新建')}${parent ? ` · 所属周计划：${escapeHtml(parent.title)}` : ''}${(plan.subTasks || []).length ? ` · ${plan.subTasks.length} 项子任务` : ''}</small></div>${metaColumns}<div class="plan-row-actions">${(plan.attachments || []).length ? `<button class="view-action" data-plan-attachment="${plan.id}">查看计划表</button>` : ''}<button class="edit-action" data-edit-plan="${plan.id}">编辑计划</button></div></article>`;
+  return `<article class="plan-row${isDay ? ' day-plan-row' : ''}${isWeek ? ' week-plan-row' : ''}"><div><strong>${escapeHtml(plan.title)}</strong><small>来源：${escapeHtml(plan.source || '手工新建')}${parent ? ` · 所属周计划：${escapeHtml(parent.title)}` : ''}${(plan.subTasks || []).length ? ` · ${plan.subTasks.length} 项子任务` : ''}</small></div>${metaColumns}<div class="plan-row-actions">${(plan.attachments || []).length ? `<button class="view-action" data-plan-attachment="${plan.id}">查看计划表</button>` : ''}${isDay ? '计划由每日例会统一编制' : `<button class="edit-action" data-edit-plan="${plan.id}">编辑计划</button>`}</div></article>`;
 }
 
 function formatDailyPlanGroupLabel(dateKey) {
@@ -1176,53 +1296,100 @@ function weatherCodeMeta(code) {
   return map[Number(code)] || ['未知', '🌡'];
 }
 
-function weatherMonthRange() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  return { start: `${year}-${String(month + 1).padStart(2, '0')}-01`, end: dailyDateKey, label: `${year}年${month + 1}月` };
+function weatherMonthRange(year = activeScheduleYear, month = activeWeatherMonth) {
+  const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+  const start = `${monthKey}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const naturalEnd = `${monthKey}-${String(lastDay).padStart(2, '0')}`;
+  return { start, end: naturalEnd > dailyDateKey ? dailyDateKey : naturalEnd, naturalEnd, monthKey, label: `${year}年${month}月` };
 }
 
 function persistWeatherConfig() {
   localStorage.setItem('zhuxu-weather-config', JSON.stringify(weatherConfig));
 }
 
-async function loadWeatherData() {
+function persistWeatherMilestones() {
+  localStorage.setItem('zhuxu-weather-milestones', JSON.stringify(weatherMilestones));
+  syncServerState('zhuxu-weather-milestones', weatherMilestones);
+}
+
+async function loadWeatherData(year = activeScheduleYear, month = activeWeatherMonth, force = false) {
   const config = weatherConfig;
-  const { start, end } = weatherMonthRange();
-  if (weatherData && weatherData.fetchedAt && weatherData.month === start.slice(0, 7) && weatherData.location === config.city && Date.now() - weatherData.fetchedAt < 3600000) return weatherData;
-  if (window.ZhuxuServer?.active) {
+  const { start, end, monthKey } = weatherMonthRange(year, month);
+  const cached = weatherArchive[monthKey];
+  if (!force && cached?.fetchedAt && cached.location === config.city && Date.now() - cached.fetchedAt < 3600000) return cached;
+  if (start <= dailyDateKey && end >= start && window.ZhuxuServer?.active) {
     try {
       const data = await window.ZhuxuServer.request(`/api/weather?latitude=${encodeURIComponent(config.latitude)}&longitude=${encodeURIComponent(config.longitude)}&start=${start}&end=${end}`);
-      weatherData = { fetchedAt: Date.now(), month: start.slice(0, 7), location: config.city, daily: data.daily || {} };
+      weatherData = { fetchedAt: Date.now(), month: monthKey, location: config.city, daily: data.daily || {} };
+      weatherArchive[monthKey] = weatherData;
       localStorage.setItem('zhuxu-weather', JSON.stringify(weatherData));
+      localStorage.setItem('zhuxu-weather-archive', JSON.stringify(weatherArchive));
       return weatherData;
     } catch (error) { /* 下面提示手动登记 */ }
   }
-  return weatherData?.month === start.slice(0, 7) ? weatherData : null;
+  if (cached?.location === config.city) return cached;
+  return weatherData?.month === monthKey ? weatherData : null;
 }
 
-async function refreshWeatherTable() {
+function milestoneTypeLabel(type) {
+  return { planned: '计划节点', actual: '实际节点', acceptance: '验收节点', milestone: '重大里程碑' }[type] || '重要事件';
+}
+
+async function refreshWeatherTable(force = false) {
   const el = $('#weatherTable');
   if (!el) return;
-  const { label } = weatherMonthRange();
-  const data = await loadWeatherData();
+  const { label, monthKey, naturalEnd } = weatherMonthRange(activeScheduleYear, activeWeatherMonth);
+  const data = await loadWeatherData(activeScheduleYear, activeWeatherMonth, force);
   const time = data?.daily?.time || [];
-  if (!time.length) { el.innerHTML = `<p class="weather-empty">${window.ZhuxuServer?.active ? '天气服务暂不可用或未联网，请稍后重试' : '联网运行后可自动获取天气并生成晴雨表'}</p>`; return; }
-  const max = data.daily.temperature_2m_max || [];
-  const min = data.daily.temperature_2m_min || [];
-  const precip = data.daily.precipitation_sum || [];
-  const codes = data.daily.weather_code || [];
-  el.innerHTML = time.map((date, index) => {
+  const max = data?.daily?.temperature_2m_max || [];
+  const min = data?.daily?.temperature_2m_min || [];
+  const precip = data?.daily?.precipitation_sum || [];
+  const codes = data?.daily?.weather_code || [];
+  const byDate = new Map(time.map((date, index) => [date, index]));
+  const dayCount = Number(naturalEnd.slice(8, 10));
+  el.innerHTML = Array.from({ length: dayCount }, (_, dayIndex) => {
+    const date = `${monthKey}-${String(dayIndex + 1).padStart(2, '0')}`;
+    const index = byDate.get(date);
+    const events = weatherMilestones.filter(item => item.date === date);
+    if (index === undefined) return `<div class="weather-day future"><span>${dayIndex + 1}</span><i>—</i><strong>${date > dailyDateKey ? '待记录' : '无数据'}</strong>${events.map(item => `<button type="button" class="weather-event ${escapeHtml(item.type)}" data-weather-event="${item.id}" title="${escapeHtml(item.title)}"></button>`).join('')}</div>`;
     const meta = weatherCodeMeta(codes[index]);
     const rainy = Number(precip[index] || 0) > 0;
-    return `<div class="weather-day ${rainy ? 'rainy' : ''}"><span>${Number(date.slice(8, 10))}</span><i>${meta[1]}</i><strong>${meta[0]}</strong><small>${Math.round(min[index])}~${Math.round(max[index])}℃</small>${rainy ? `<em>${Number(precip[index]).toFixed(1)}mm</em>` : ''}</div>`;
+    return `<div class="weather-day ${rainy ? 'rainy' : ''}"><span>${dayIndex + 1}</span><i>${meta[1]}</i><strong>${meta[0]}</strong><small>${Math.round(min[index])}~${Math.round(max[index])}℃</small>${rainy ? `<em>${Number(precip[index]).toFixed(1)}mm</em>` : ''}${events.map(item => `<button type="button" class="weather-event ${escapeHtml(item.type)}" data-weather-event="${item.id}" title="${escapeHtml(item.title)}"></button>`).join('')}</div>`;
   }).join('');
+  $$('[data-weather-event]', el).forEach(button => button.addEventListener('click', () => openWeatherMilestoneDetail(button.dataset.weatherEvent)));
+  const currentIndex = time.length ? time.length - 1 : -1;
+  if (currentIndex >= 0 && monthKey === dailyDateKey.slice(0, 7)) {
+    const meta = weatherCodeMeta(codes[currentIndex]);
+    $('.site-weather .weather-icon').textContent = meta[1];
+    $('.site-weather strong').textContent = `${Math.round(max[currentIndex])}°C`;
+    $('.site-weather small').textContent = `${meta[0]} · ${weatherConfig.city}`;
+  }
+  $('#weatherArchiveStatus').textContent = time.length ? `${label} 已记录 ${time.length} 天` : `${label} 暂无天气记录`;
 }
 
-function renderWeatherPanel() {
-  const { label } = weatherMonthRange();
-  return `<section class="weather-panel"><div class="weather-panel-heading"><div><span>WEATHER · ${escapeHtml(weatherConfig.city || '未设置城市')}</span><strong>晴雨表</strong><small>${label} · 每日天气自动记录，可按项目设置所在地</small></div><div><button type="button" data-weather-setting>设置地点</button><button type="button" data-weather-refresh>刷新天气</button></div></div><div class="weather-table" id="weatherTable"><p class="weather-loading">正在加载 ${label} 天气…</p></div></section>`;
+function renderWeatherArchiveBody() {
+  const body = $('#weatherArchiveBody');
+  const monthButtons = Array.from({ length: 12 }, (_, index) => `<button type="button" class="${activeWeatherMonth === index + 1 ? 'active' : ''}" data-weather-month="${index + 1}">${index + 1}月</button>`).join('');
+  body.innerHTML = `<section class="weather-archive-toolbar"><div><strong>${activeScheduleYear}年 · ${escapeHtml(weatherConfig.city || '未设置地点')}</strong><small id="weatherArchiveStatus">正在读取天气档案…</small></div><button type="button" data-weather-refresh>刷新本月</button></section><div class="weather-month-tabs">${monthButtons}</div><div class="weather-event-legend"><span class="planned">计划节点</span><span class="actual">实际节点</span><span class="acceptance">验收节点</span><span class="milestone">重大里程碑</span></div><div class="weather-table" id="weatherTable"><p class="weather-loading">正在加载晴雨表…</p></div>`;
+  $$('[data-weather-month]', body).forEach(button => button.addEventListener('click', () => { activeWeatherMonth = Number(button.dataset.weatherMonth); renderWeatherArchiveBody(); refreshWeatherTable(); }));
+  $('[data-weather-refresh]', body).addEventListener('click', () => refreshWeatherTable(true));
+}
+
+function openWeatherArchive() {
+  activeWeatherMonth = Number(dailyDateKey.slice(5, 7));
+  renderWeatherArchiveBody();
+  $('#weatherArchiveDialog').showModal();
+  refreshWeatherTable();
+}
+
+function openWeatherMilestoneDetail(id) {
+  const item = weatherMilestones.find(event => Number(event.id) === Number(id));
+  if (!item) return;
+  activeWeatherMilestoneId = item.id;
+  $('#weatherMilestoneDetailTitle').textContent = item.title;
+  $('#weatherMilestoneDetailBody').innerHTML = `<section class="weather-milestone-detail ${escapeHtml(item.type)}"><span>${escapeHtml(milestoneTypeLabel(item.type))}</span><strong>${escapeHtml(item.date)}</strong><p>${escapeHtml(item.note || '未填写补充说明')}</p></section>`;
+  $('#weatherMilestoneDetailDialog').showModal();
 }
 
 function openWeatherSetting() {
@@ -1233,15 +1400,118 @@ function openWeatherSetting() {
   $('#weatherSettingDialog').showModal();
 }
 
+function dateDistance(start, end) {
+  return Math.round((new Date(`${end}T12:00:00`) - new Date(`${start}T12:00:00`)) / 86400000);
+}
+
+function renderPlanGanttRow(plan, rangeStart, rangeEnd, compactDay = false) {
+  const totalDays = Math.max(1, dateDistance(rangeStart, rangeEnd) + 1);
+  const clippedStart = plan.start < rangeStart ? rangeStart : plan.start;
+  const clippedEnd = plan.end > rangeEnd ? rangeEnd : plan.end;
+  const left = Math.max(0, dateDistance(rangeStart, clippedStart) / totalDays * 100);
+  const duration = Math.max(1, dateDistance(clippedStart, clippedEnd) + 1);
+  const width = compactDay ? Math.max(4, Number(plan.dailyTarget ?? 100)) : Math.max(2.5, duration / totalDays * 100);
+  const owners = planOwners(plan).join('、') || plan.compiler || plan.ownerRole || '待明确';
+  const record = plan.level === 'day' ? getPlanExecutionRecord(plan) : null;
+  return `<article class="schedule-gantt-row ${plan.level === 'day' ? 'day' : 'period'}"><div class="schedule-gantt-copy"><strong>${escapeHtml(plan.title)}</strong><small>${escapeHtml(plan.level === 'day' ? `${owners} · ${plan.team || '待定班组'}` : `编制人：${plan.compiler || owners}`)}</small></div><div class="schedule-gantt-track"><i style="left:${left}%;width:${Math.min(100 - left, width)}%"><span>${plan.level === 'day' ? `${Number(plan.dailyTarget ?? 100)}%` : `${plan.start.slice(5)}—${plan.end.slice(5)}`}</span></i></div>${plan.level === 'day' ? `<span data-label="需完成">${Number(plan.dailyTarget ?? 100)}%</span><span data-label="责任人">${escapeHtml(owners)}</span><span data-label="责任班组">${escapeHtml(plan.team || '待明确')}</span><span data-label="日期">${escapeHtml(plan.start)}</span>` : `<span>${escapeHtml(plan.start)}</span><span>${escapeHtml(plan.end)}</span><span>${record ? `${Number(record.progress || 0)}%` : escapeHtml(plan.compiler || owners)}</span>`}${plan.level === 'day' ? '<span class="meeting-readonly-hint">由每日例会统一编制</span>' : `<button type="button" class="edit-action" data-edit-plan="${plan.id}">编辑</button>`}</article>`;
+}
+
+function renderGanttScale(start, end) {
+  const days = Math.max(1, dateDistance(start, end) + 1);
+  const marks = Array.from({ length: Math.min(days, 12) }, (_, index) => {
+    const offset = Math.round(index * (days - 1) / Math.max(1, Math.min(days, 12) - 1));
+    return shiftDateKey(start, offset).slice(5);
+  });
+  return `<div class="schedule-gantt-scale">${marks.map(mark => `<span>${mark}</span>`).join('')}</div>`;
+}
+
+function planFileSource(file) {
+  return file?.data || (file?.storageKey && window.ZhuxuServer?.active ? window.ZhuxuServer.attachmentUrl(file.storageKey) : '');
+}
+
+function planFileMedia(file, source = '') {
+  const kind = attachmentKind(file || {});
+  if (!file) return '';
+  if (!source && file.storageKey) return `<div class="plan-file-loading" data-plan-preview-storage="${escapeHtml(file.storageKey)}" data-preview-kind="${kind}" data-preview-name="${escapeHtml(file.name)}"><span></span><strong>正在载入计划原文件</strong><small>${escapeHtml(file.name)}</small></div>`;
+  if (!source) return `<div class="plan-file-unavailable"><span>FILE</span><strong>${escapeHtml(file.name)}</strong><small>原文件尚未完整保存，请重新上传。</small></div>`;
+  if (kind === 'image') return `<img src="${source}" alt="${escapeHtml(file.name)}">`;
+  if (kind === 'pdf') return `<iframe src="${source}" title="${escapeHtml(file.name)}"></iframe>`;
+  return `<div class="plan-file-unavailable ready"><span>FILE</span><strong>${escapeHtml(file.name)}</strong><small>此格式由系统保留原文件，点击“放大查看”使用适合的软件打开。</small></div>`;
+}
+
+function renderPlanFileCanvas(plan, emptyTitle, emptyCopy) {
+  const file = plan?.attachments?.[0];
+  const media = file ? planFileMedia(file, planFileSource(file)) : `<div class="plan-file-empty"><span>▥</span><strong>${escapeHtml(emptyTitle)}</strong><small>${escapeHtml(emptyCopy)}</small></div>`;
+  return `<div class="plan-file-canvas ${file ? 'has-file' : 'empty'}"${file ? ` data-plan-canvas="${plan.id}"` : ''}>${media}${file ? `<button type="button" class="plan-file-enlarge" data-plan-attachment="${plan.id}"><span>⛶</span> 放大查看原文件</button>` : ''}</div>`;
+}
+
+async function hydratePlanFilePreviews(container) {
+  planPreviewUrls.forEach(url => URL.revokeObjectURL(url));
+  planPreviewUrls = [];
+  for (const node of $$('[data-plan-preview-storage]', container)) {
+    try {
+      const stored = await getResourceAttachment(node.dataset.planPreviewStorage);
+      if (!stored?.blob || !node.isConnected) continue;
+      const source = URL.createObjectURL(stored.blob);
+      planPreviewUrls.push(source);
+      const file = { name: node.dataset.previewName, type: stored.type || '' };
+      node.replaceWith(document.createRange().createContextualFragment(planFileMedia(file, source)));
+    } catch (error) {
+      node.innerHTML = '<strong>计划文件读取失败</strong><small>请重新上传原文件。</small>';
+    }
+  }
+}
+
+function findPeriodFilePlan(level, start, end) {
+  return plans.find(plan => plan.level === level && plan.isScheduleFile && plan.start === start && plan.end === end)
+    || plans.find(plan => plan.level === level && (plan.attachments || []).length && plan.start <= end && plan.end >= start);
+}
+
+function renderPeriodPlanWorkspace({ level, start, end, title, plan, workCount = 0 }) {
+  const levelLabel = level === 'month' ? '月计划' : '周计划';
+  const autoChart=level==='week'?renderAutoWeekChart(start,end):'';
+  return `<section class="period-plan-workspace"><div class="period-plan-toolbar"><div><span>${level === 'month' ? 'MONTHLY SCHEDULE' : 'WEEKLY SCHEDULE'}</span><strong>${escapeHtml(title)}</strong><small>${start}—${end} · ${workCount} 项执行工作${plan?.attachments?.[0] ? ` · ${escapeHtml(plan.attachments[0].name)}` : ''}</small></div><div class="goal-actions">${renderRecognitionFileAction(plan)}<button type="button" data-upload-period-plan data-period-level="${level}" data-period-start="${start}" data-period-end="${end}" data-period-title="${escapeHtml(title)}">${plan?.attachments?.[0] ? `更换${levelLabel}文件` : `上传${levelLabel}`}</button></div></div>${plan?.attachments?.length||!autoChart?renderPlanFileCanvas(plan, `上传${title}原文件`, `支持 PDF、图片、Excel、Word、MPP 等计划文件；上传后直接在这里显示。`):''}${autoChart}</section>${renderScheduleGoals(level,start,end)}`;
+}
+
+function renderMasterPlanBoard() {
+  const master = plans.find(plan => plan.level === 'master');
+  const file = master?.attachments?.[0];
+  return `<section class="master-plan-board"><div class="master-plan-heading"><div><span>MASTER SCHEDULE</span><strong>${escapeHtml(master?.title || '项目总进度计划')}</strong><small>${master ? `${master.start}—${master.end}${file ? ` · ${escapeHtml(file.name)}` : ''}` : '等待上传批准版总计划'}</small></div><div><button type="button" data-upload-master-plan>${file ? '更换总计划文件' : '上传总计划文件'}</button></div></div>${renderPlanFileCanvas(master, '上传总进度网络图或横道图', '总计划不在系统内编制；上传后原文件直接在本页展示。')}</section>`;
+}
+
+function renderMonthPlanBoard() {
+  const month = activeScheduleMonth;
+  const start = `${activeScheduleYear}-${String(month).padStart(2, '0')}-01`;
+  const end = `${activeScheduleYear}-${String(month).padStart(2, '0')}-${String(new Date(activeScheduleYear, month, 0).getDate()).padStart(2, '0')}`;
+  const workPlans = plans.filter(plan => plan.level === 'month' && !plan.isScheduleFile && plan.start <= end && plan.end >= start);
+  const filePlan = findPeriodFilePlan('month', start, end);
+  const selector = `<div class="schedule-month-selector schedule-month-selector-large">${Array.from({length:12},(_,index)=>`<button type="button" class="${month === index + 1 ? 'active' : ''}" data-schedule-month-select="${index + 1}">${index + 1}月<span>${plans.some(plan => plan.level === 'month' && (plan.attachments || []).length && plan.start.slice(0,7) === `${activeScheduleYear}-${String(index + 1).padStart(2,'0')}`) ? '●' : ''}</span></button>`).join('')}</div>`;
+  return `${selector}${renderPeriodPlanWorkspace({ level: 'month', start, end, title: `${month}月进度计划`, plan: filePlan, workCount: workPlans.length })}`;
+}
+
+function renderWeekPlanBoard() {
+  const monthPrefix = `${activeScheduleYear}-${String(activeScheduleMonth).padStart(2,'0')}`;
+  const ranges = ZhuxuScheduleRules.weeks(activeScheduleYear,activeScheduleMonth);
+  const selector = `<div class="schedule-month-selector">${Array.from({length:12},(_,i)=>`<button type="button" class="${activeScheduleMonth===i+1?'active':''}" data-schedule-month-select="${i+1}">${i+1}月</button>`).join('')}</div>`;
+  const legacy = plans.filter(p=>p.level==='week' && (p.attachments||[]).length && p.start.slice(0,7)===monthPrefix && !ranges.some(w=>w.start===p.start && w.end===p.end));
+  return `${selector}<p class="schedule-goal-hint">按周一至周日展示自然周；跨月周的目标分别关联各自月份，日执行按所属月目标归集。</p><section class="schedule-period-board week-file-board">${ranges.map((range,index)=>{
+    const filePlan=plans.find(p=>p.level==='week' && p.start===range.start && p.end===range.end && (p.isScheduleFile || p.attachments?.length));
+    const title=`${activeScheduleMonth}月第${index+1}周 · ${range.start}—${range.end}`;
+    const generated=plans.some(p=>p.level==='week'&&p.source==='月计划自动分周'&&p.start<=range.end&&p.end>=range.start);
+    return `<details class="schedule-period-group week-file-group" data-period-details${range.start<=dailyDateKey && range.end>=dailyDateKey?' open':''}><summary><span>W${index+1}</span><div><strong>${title}</strong><small>自然周 · 周一至周日</small></div><em>${filePlan?.attachments?.length?'已上传':generated?'已自动生成':'待上传'}</em><i>⌄</i></summary><div class="schedule-period-body">${renderPeriodPlanWorkspace({level:'week',...range,title,plan:filePlan})}</div></details>`;
+  }).join('')}</section>${legacy.length?`<section class="schedule-goals"><h3>原周期计划文件（保留原日期）</h3>${legacy.map(p=>`<details><summary>${escapeHtml(p.title)} · ${p.start}—${p.end}</summary>${renderPlanFileCanvas(p,'原计划文件','')}</details>`).join('')}</section>`:''}`;
+}
+
+function renderDayPlanBoard() {
+  const dayPlans = plans.filter(plan => plan.level === 'day' && !plan.archived).sort((a,b) => String(b.start).localeCompare(String(a.start)));
+  const groups = [...new Set(dayPlans.map(plan => plan.start))];
+  return `<section class="daily-gantt-board"><div class="daily-gantt-columns"><span>施工内容 / 横道</span><span>当日需完成</span><span>责任人</span><span>责任班组</span><span>日期</span><span>操作</span></div>${groups.map(date => { const datePlans = dayPlans.filter(plan => plan.start === date); return `<details class="daily-gantt-date" data-plan-date="${date}"${date === dailyDateKey ? ' open' : ''}><summary><strong>${formatDailyPlanGroupLabel(date)}</strong><span>${datePlans.length} 项施工任务</span><i>⌄</i></summary><div>${datePlans.map(plan => renderPlanGanttRow(plan,date,date,true)).join('')}</div></details>`; }).join('') || '<div class="resource-empty">尚未编制日计划，点击右上角“新建日计划”。</div>'}</section>`;
+}
+
 function renderScheduleBody() {
   const levels = { master: '总计划', month: '月计划', week: '周计划', day: '日计划' };
-  const visiblePlans = plans.filter(plan => plan.level === activePlanLevel);
-  const content = !visiblePlans.length
-    ? '<div class="resource-empty">当前层级还没有计划，点击“新建计划”添加</div>'
-    : activePlanLevel === 'day'
-      ? renderDailyPlanGroups(visiblePlans)
-      : `<div class="plan-list">${visiblePlans.map(plan => renderPlanRow(plan)).join('')}</div>`;
-  return `<div class="plan-level-tabs" role="tablist" aria-label="计划层级">${Object.entries(levels).map(([key, label]) => `<button type="button" class="${key === activePlanLevel ? 'active' : ''}" data-plan-level="${key}">${label}<b>${plans.filter(plan => plan.level === key).length}</b></button>`).join('')}</div>${content}${renderWeatherPanel()}`;
+  const content = activePlanLevel === 'master' ? renderMasterPlanBoard() : activePlanLevel === 'month' ? renderMonthPlanBoard() : activePlanLevel === 'week' ? renderWeekPlanBoard() : renderDayPlanBoard();
+  return `<div class="plan-level-tabs" role="tablist" aria-label="计划层级">${Object.entries(levels).map(([key, label]) => `<button type="button" class="${key === activePlanLevel ? 'active' : ''}" data-plan-level="${key}">${label}<b>${key === 'month' ? 12 : key === 'week' ? ZhuxuScheduleRules.weeks(activeScheduleYear,activeScheduleMonth).length : plans.filter(plan => plan.level === key && !plan.archived).length}</b></button>`).join('')}</div>${renderLinkedSampleLoader()}${renderRecognitionToolbar()}${content}`;
 }
 
 function updatePlanParentField(selectedParentId = '') {
@@ -1250,52 +1520,57 @@ function updatePlanParentField(selectedParentId = '') {
   const field = $('#parentWeekPlanField');
   field.hidden = !isDay;
   const start = form.elements.start.value || dailyDateKey;
-  const weekPlans = plans.filter(plan => plan.level === 'week' && plan.start <= start && plan.end >= start);
-  form.elements.parentId.innerHTML = `<option value="">系统按日期自动匹配</option>${weekPlans.map(plan => `<option value="${plan.id}">${escapeHtml(plan.title)} · ${plan.start}—${plan.end}</option>`).join('')}`;
+  const weekPlans = plans.filter(plan => plan.level === 'week' && !plan.isScheduleFile && plan.start <= start && plan.end >= start);
+  form.elements.parentId.innerHTML = `<option value="">计划外 / 请明确选择所属周任务</option>${weekPlans.map(plan => `<option value="${plan.id}">${escapeHtml(plan.title)} · ${plan.start}—${plan.end}</option>`).join('')}`;
   if (selectedParentId && weekPlans.some(plan => Number(plan.id) === Number(selectedParentId))) form.elements.parentId.value = String(selectedParentId);
 }
 
 function updatePlanFields() {
   const form = $('#planForm');
-  const level = form.elements.level.value;
-  const isDay = level === 'day';
-  const isDayOrWeek = isDay || level === 'week';
-  $('#planOwnerRoleField').hidden = isDayOrWeek;
-  $('#planOwnersField').hidden = !isDayOrWeek;
-  $('#planTeamField').hidden = !isDayOrWeek;
-  $('#planDailyTargetField').hidden = !isDay;
+  const isDay = form.elements.level.value === 'day';
+  $('#planCompilerField').hidden = true;
+  $('#planOwnerRoleField').hidden = true;
+  $('#planOwnersField').hidden = true;
+  $('#planTeamField').hidden = true;
+  $('#planDailyTargetField').hidden = true;
+  $('#planDayRowsSection').hidden = !isDay;
 }
 
-function openPlanDialog(plan = null) {
+function openPlanDialog(plan = null, preset = {}) {
   const form = $('#planForm');
   form.reset();
   const unconfirmedToday = dailyExecution.filter(item => item.date === dailyDateKey && item.autoGenerated === true && item.confirmed !== true).length;
   if (unconfirmedToday) showToast(`提醒：今日还有 ${unconfirmedToday} 项计划未完成人工确认或修改，请先在每日任务执行中确认`);
   editingPlanId = plan?.id || null;
   planRecognitionCandidates = [];
-  planAttachmentsDraft = [...(plan?.attachments || [])];
-  planSubtasksDraft = (plan?.subTasks || []).map(subtask => ({ title: subtask.title || '', owner: subtask.owner || '', team: subtask.team || '' }));
+  planAttachmentsDraft = [];
+  planSubtasksDraft = [];
+  const legacyRows = (plan?.subTasks || []).filter(item => item.title).map(item => ({ id: item.id || null, title: item.title || '', dailyTarget: plan?.dailyTarget ?? 100, owners: item.owner || planOwners(plan).join('、'), team: item.team || plan?.team || '' }));
+  planDayRowsDraft = legacyRows.length ? legacyRows : plan ? [{ id: plan.id, title: plan.title || '', dailyTarget: plan.dailyTarget ?? 100, owners: planOwners(plan).join('、'), team: plan.team || '' }] : Array.from({ length: 4 }, () => ({ id: null, title: '', dailyTarget: 100, owners: '', team: '' }));
   renderPlanRecognitionCandidates();
   renderPlanAttachmentList();
   renderPlanSubtaskList();
-  setPlanMode('manual');
-  form.elements.level.value = plan?.level || activePlanLevel;
+  renderPlanDayRows();
+  form.elements.level.value = 'day';
   form.elements.title.value = plan?.title || '';
-  form.elements.start.value = plan?.start || new Date().toISOString().slice(0, 10);
-  form.elements.end.value = plan?.end || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+  form.elements.start.value = plan?.start || preset.start || new Date().toISOString().slice(0, 10);
+  form.elements.end.value = form.elements.start.value;
+  form.elements.compiler.value = '';
   form.elements.ownerRole.value = plan?.ownerRole || '生产经理';
   form.elements.owners.value = Array.isArray(plan?.owners) ? plan.owners.join('、') : (plan?.owners || '');
   form.elements.team.value = plan?.team || '';
   form.elements.dailyTarget.value = plan?.dailyTarget ?? 100;
   updatePlanParentField(plan?.parentId || '');
   updatePlanFields();
-  $('#planDialog .dialog-heading h2').textContent = plan ? '编辑并更新计划' : '新建或导入计划';
+  $('#planDialog .dialog-heading h2').textContent = plan ? '编辑当日施工计划' : '批量编制日计划';
+  form.querySelector('[type="submit"]').textContent = plan ? '保存修改' : '保存全部日计划';
+  $('#cancelEditingPlanButton').hidden = !plan;
   $('#planDialog').showModal();
 }
 
 function setPlanMode(mode) {
   $$('[data-plan-mode]').forEach(button => button.classList.toggle('active', button.dataset.planMode === mode));
-  $('#planImportPanel').hidden = mode !== 'import';
+  if ($('#planImportPanel')) $('#planImportPanel').hidden = mode !== 'import';
 }
 
 const technicalTypeLabels = { drawing: '施工图纸', change: '设计变更', contact: '联系函', instruction: '指令单' };
@@ -1322,30 +1597,66 @@ function technicalBuildingName(documentItem) {
 
 function renderTechnicalDocumentsBody() {
   const types = [['drawing','施工图纸'],['change','设计变更'],['contact','联系函'],['instruction','指令单']];
-  const professionTabs = [['all','全部'], ...DRAWING_PROFESSIONS.map(profession => [profession, profession]), ['其他','其他']];
-  const drawings = technicalDocuments.filter(item => item.type === 'drawing');
-  const drawingFolders = [...new Set([...drawingBuildings, ...drawings.map(technicalBuildingName)])].sort((a,b) => a.localeCompare(b,'zh-CN'));
+  const query = activeTechnicalSearch.trim().toLowerCase();
+  const matchesSearch = item => !query || [item.title,item.code,item.scope,item.building,item.profession,item.issuedBy,item.content,...(item.files || []).map(file => file.name)].join(' ').toLowerCase().includes(query);
+  const drawings = technicalDocuments.filter(item => item.type === 'drawing' && matchesSearch(item));
+  const drawingFolders = [...new Set([...(query ? [] : drawingBuildings), ...drawings.map(technicalBuildingName)])].sort((a,b) => a.localeCompare(b,'zh-CN'));
   const visible = technicalDocuments.filter(item => {
+    if (!matchesSearch(item)) return false;
     if (activeTechnicalFilter !== 'all' && item.type !== activeTechnicalFilter) return false;
     if (activeTechnicalFilter === 'drawing' && activeTechnicalBuilding !== 'all' && technicalBuildingName(item) !== activeTechnicalBuilding) return false;
     if (activeTechnicalFilter === 'drawing' && activeTechnicalBuilding !== 'all' && activeTechnicalProfession !== 'all' && professionLabel(item.profession) !== activeTechnicalProfession) return false;
-    return activeTechnicalFilter !== 'drawing' || activeTechnicalBuilding !== 'all';
+    return activeTechnicalFilter !== 'drawing' || activeTechnicalBuilding !== 'all' || Boolean(query);
   }).sort((a,b) => String(b.issuedAt).localeCompare(String(a.issuedAt)));
-  const drawingBrowser = activeTechnicalFilter === 'drawing' ? `<section class="technical-building-browser"><div class="technical-building-heading"><div><span>DRAWING ARCHIVE</span><strong>按单体查看施工图</strong><small>单体文件夹内按结构、建筑、暖通、采暖、给排水、电气、消防分专业；上传整个图纸文件夹时可指定归属单体</small></div><div>${activeTechnicalBuilding !== 'all' ? `<button type="button" data-technical-building="all">← 返回全部单体</button>` : `<button type="button" data-new-drawing-building>＋ 新建单体</button>`}</div></div><div class="technical-building-folders">${drawingFolders.map(building => { const items = drawings.filter(item => technicalBuildingName(item) === building); const latest = [...items].sort((a,b) => String(b.issuedAt).localeCompare(String(a.issuedAt)))[0]; const professionSummary = [...new Set(items.map(item => professionLabel(item.profession)))].slice(0, 3).map(profession => `${profession} ${items.filter(item => professionLabel(item.profession) === profession).length}`).join(' · '); return `<button type="button" class="${activeTechnicalBuilding === building ? 'active' : ''}" data-technical-building="${escapeHtml(building)}"><i><span></span></i><strong>${escapeHtml(building)}</strong><small>${items.length} 张施工图 · ${professionSummary || '空文件夹，可开始上传图纸'}</small><em>${items.length ? '打开文件夹 →' : '空文件夹'}</em></button>`; }).join('') || '<div class="resource-empty">还没有施工图文件夹，可点击“新建单体”建立，或上传图纸/文件夹时自动创建。</div>'}</div>${activeTechnicalBuilding === 'all' && drawingFolders.length ? '<p class="technical-folder-hint">请选择一个单体文件夹查看其中的施工图。</p>' : ''}${activeTechnicalBuilding !== 'all' ? `<div class="technical-profession-tabs" role="tablist" aria-label="施工图专业分类">${professionTabs.map(([key,label]) => `<button type="button" role="tab" aria-selected="${key === activeTechnicalProfession}" class="${key === activeTechnicalProfession ? 'active' : ''}" data-technical-profession="${key}">${label}<b>${key === 'all' ? drawings.filter(item => technicalBuildingName(item) === activeTechnicalBuilding).length : drawings.filter(item => technicalBuildingName(item) === activeTechnicalBuilding && professionLabel(item.profession) === key).length}</b></button>`).join('')}</div>` : ''}</section>` : '';
+  const drawingBrowser = activeTechnicalFilter === 'drawing' ? `<section class="technical-building-browser"><div class="technical-building-heading"><div><span>DRAWING ARCHIVE</span><strong>${activeTechnicalBuilding === 'all' ? '按单体查看施工图' : `${escapeHtml(activeTechnicalBuilding)} · 专业子文件夹`}</strong><small>图纸按“单体 / 专业 / 图纸”归档；打开专业子文件夹后可直接打开原图纸</small></div><div>${activeTechnicalBuilding !== 'all' ? `<button type="button" data-technical-building="all">← 返回全部单体</button>` : `<button type="button" data-new-drawing-building>＋ 新建单体</button>`}</div></div><div class="technical-building-folders">${activeTechnicalBuilding === 'all' ? drawingFolders.map(building => { const items = drawings.filter(item => technicalBuildingName(item) === building); const professionSummary = [...new Set(items.map(item => professionLabel(item.profession)))].slice(0, 3).map(profession => `${profession} ${items.filter(item => professionLabel(item.profession) === profession).length}`).join(' · '); return `<button type="button" data-technical-building="${escapeHtml(building)}"><i><span></span></i><strong>${escapeHtml(building)}</strong><small>${items.length} 张施工图 · ${professionSummary || '空文件夹，可开始上传图纸'}</small><em>${items.length ? '打开单体 →' : '空文件夹'}</em></button>`; }).join('') : [...new Set(drawings.filter(item => technicalBuildingName(item) === activeTechnicalBuilding).map(item => professionLabel(item.profession)))].map(profession => { const count = drawings.filter(item => technicalBuildingName(item) === activeTechnicalBuilding && professionLabel(item.profession) === profession).length; return `<button type="button" class="${activeTechnicalProfession === profession ? 'active' : ''}" data-technical-profession="${escapeHtml(profession)}"><i><span></span></i><strong>${escapeHtml(profession)}专业</strong><small>${count} 张图纸</small><em>${activeTechnicalProfession === profession ? '收起子文件夹' : '打开子文件夹 →'}</em></button>`; }).join('')}</div>${activeTechnicalBuilding === 'all' && drawingFolders.length ? '<p class="technical-folder-hint">先打开单体，再进入专业子文件夹查看图纸。</p>' : ''}</section>` : '';
   return `<section class="technical-file-overview"><div><span>TECHNICAL FILE REGISTER</span><h2>项目技术文件统一入口</h2><p>技术负责人上传原文件并注明适用部位，现场人员可随时查看；关联任务中的变更和指令会突出风险提醒。</p></div><div>${types.map(([key,label]) => `<button type="button" class="${activeTechnicalFilter === key ? 'active' : ''}" data-technical-overview-filter="${key}"><strong>${technicalDocuments.filter(item => item.type === key).length}</strong><span>${label}</span><em>${key === 'drawing' ? '打开单体文件夹' : '直接查看文件'} →</em></button>`).join('')}</div></section>
     <div class="technical-file-tabs">${types.map(([key,label]) => `<button type="button" class="${activeTechnicalFilter === key ? 'active' : ''}" data-technical-filter="${key}">${label}<b>${technicalDocuments.filter(item => item.type === key).length}</b></button>`).join('')}</div>
+    <div class="technical-search-bar"><input id="technicalSearchInput" value="${escapeHtml(activeTechnicalSearch)}" placeholder="输入图纸名称、文件编号、专业、部位或附件名"><button type="button" data-technical-search-submit>查找文件</button>${activeTechnicalSearch ? '<button type="button" data-technical-search-clear>清空</button>' : ''}<span>${query ? `找到 ${visible.length || drawings.length} 项` : '支持图纸和全部技术文件'}</span></div>
     ${drawingBrowser}
-    ${activeTechnicalFilter === 'drawing' && activeTechnicalBuilding === 'all' ? '' : `<section class="technical-file-register"><div class="technical-file-row header"><span>类别 / 编号</span><span>文件名称与适用范围</span><span>发布人</span><span>发布日期</span><span>原文件</span><span>操作</span></div>${visible.map(item => `<button type="button" class="technical-file-row" data-technical-document="${item.id}"><span><i class="${item.type}">${technicalTypeLabels[item.type]?.slice(0,1) || '技'}</i><b>${escapeHtml(technicalTypeLabels[item.type] || item.type)}${item.profession ? ` · ${escapeHtml(item.profession)}` : ''}</b><small>${escapeHtml(item.code)}</small></span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(technicalBuildingName(item))}${item.profession ? ` · ${escapeHtml(item.profession)}` : ''} · ${escapeHtml(item.scope)}</small></span><span>${escapeHtml(item.issuedBy)}</span><span>${escapeHtml(item.issuedAt)}</span><span>${(item.files || []).length} 个附件</span><em>${item.type === 'drawing' ? '打开图纸' : '查看内容'} →</em></button>`).join('') || '<div class="resource-empty">当前类别还没有技术文件，点击右上角上传；施工图纸可通过“上传图纸文件夹”批量归档。</div>'}</section>`}`;
+    ${activeTechnicalFilter === 'drawing' && (activeTechnicalBuilding === 'all' || activeTechnicalProfession === 'all') && !query ? '' : `<section class="technical-file-register"><div class="technical-file-row header"><span>类别 / 编号</span><span>文件名称与适用范围</span><span>发布人</span><span>发布日期</span><span>原文件</span><span>操作</span></div>${visible.map(item => `<button type="button" class="technical-file-row" ${item.type === 'drawing' ? `data-open-drawing="${item.id}"` : `data-technical-document="${item.id}"`}><span><i class="${item.type}">${technicalTypeLabels[item.type]?.slice(0,1) || '技'}</i><b>${escapeHtml(technicalTypeLabels[item.type] || item.type)}${item.profession ? ` · ${escapeHtml(item.profession)}` : ''}</b><small>${escapeHtml(item.code)}</small></span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(technicalBuildingName(item))}${item.profession ? ` · ${escapeHtml(item.profession)}` : ''} · ${escapeHtml(item.scope)}</small></span><span>${escapeHtml(item.issuedBy)}</span><span>${escapeHtml(item.issuedAt)}</span><span>${(item.files || []).length} 个附件</span><em>${item.type === 'drawing' ? '打开图纸' : '查看内容'} →</em></button>`).join('') || '<div class="resource-empty">没有找到匹配文件；可调整关键词或重新选择分类。</div>'}</section>`}`;
 }
 
-function openTechnicalDocumentDialog(type = '') {
+function renderTechnicalFileDraftList() {
+  const list = $('#technicalFileDraftList');
+  if (!list) return;
+  list.innerHTML = technicalFilesDraft.length ? technicalFilesDraft.map((file, index) => `<div><i>${attachmentKind(file) === 'pdf' ? 'PDF' : attachmentKind(file) === 'image' ? 'IMG' : 'FILE'}</i><span><strong>${escapeHtml(file.name)}</strong><small>${formatAttachmentSize(file.size)}</small></span><button type="button" data-remove-technical-draft="${index}">删除</button></div>`).join('') : '<p>尚未保留原文件；可在上方重新上传。</p>';
+  $$('[data-remove-technical-draft]', list).forEach(button => button.addEventListener('click', () => { technicalFilesDraft.splice(Number(button.dataset.removeTechnicalDraft), 1); renderTechnicalFileDraftList(); }));
+}
+
+function openTechnicalDocumentDialog(typeOrItem = '') {
   const form = $('#technicalDocumentForm');
   form.reset();
-  if (type) form.elements.type.value = type;
-  form.elements.issuedBy.value = matchPersonByRole('技术负责人');
-  form.elements.issuedAt.value = dailyDateKey;
+  const item = typeof typeOrItem === 'object' ? typeOrItem : null;
+  linkingTechnicalTaskId = null;
+  linkingTechnicalTaskDate = null;
+  const type = item?.type || typeOrItem || 'drawing';
+  editingTechnicalDocumentId = item?.id || null;
+  technicalFilesDraft = [...(item?.files || [])];
+  form.elements.type.value = type;
+  form.elements.code.value = item?.code || '';
+  form.elements.title.value = item?.title || '';
+  form.elements.building.value = item?.building || '';
+  form.elements.profession.value = item?.profession || '';
+  form.elements.issuedBy.value = item?.issuedBy || matchPersonByRole('技术负责人');
+  form.elements.issuedAt.value = item?.issuedAt || dailyDateKey;
+  form.elements.scope.value = item?.scope || '';
+  form.elements.content.value = item?.content || '';
   $('#professionField').hidden = form.elements.type.value !== 'drawing';
+  $('#technicalDocumentDialog .dialog-heading h2').textContent = item ? '编辑技术文件与原附件' : '上传图纸、变更、联系函或指令单';
+  form.querySelector('[type="submit"]').textContent = item ? '保存修改' : '保存技术文件';
+  renderTechnicalFileDraftList();
   $('#technicalDocumentDialog').showModal();
+}
+
+function openTechnicalDrawing(documentId) {
+  const item = technicalDocuments.find(document => Number(document.id) === Number(documentId));
+  const file = item?.files?.[0];
+  if (!file) { showToast('该图纸尚未保存原文件，请编辑后重新上传'); if (item) openTechnicalDocumentDialog(item); return; }
+  if (file.storageKey && window.ZhuxuServer?.active) {
+    window.open(window.ZhuxuServer.attachmentUrl(file.storageKey), '_blank', 'noopener');
+    return;
+  }
+  previewStoredAttachment(file);
 }
 
 async function importDrawingFolder(files, targetBuilding = '') {
@@ -1382,8 +1693,16 @@ function openTechnicalDocumentDetail(documentId) {
   if (!documentItem) return;
   $('#technicalDocumentDetailType').textContent = `${technicalTypeLabels[documentItem.type] || '技术文件'} · ${documentItem.code}`;
   $('#technicalDocumentDetailTitle').textContent = documentItem.title;
-  $('#technicalDocumentDetailBody').innerHTML = `<section class="technical-document-paper"><div class="technical-document-stamp ${documentItem.type}"><span>${technicalTypeLabels[documentItem.type] || '技术文件'}</span><strong>${escapeHtml(documentItem.code)}</strong></div><h3>${escapeHtml(documentItem.title)}</h3><p>${escapeHtml(documentItem.content)}</p><dl><div><dt>所属单体 / 分区</dt><dd>${escapeHtml(technicalBuildingName(documentItem))}</dd></div><div><dt>适用部位</dt><dd>${escapeHtml(documentItem.scope)}</dd></div><div><dt>发布人</dt><dd>${escapeHtml(documentItem.issuedBy)}</dd></div><div><dt>发布日期</dt><dd>${escapeHtml(documentItem.issuedAt)}</dd></div><div><dt>文件状态</dt><dd>现行有效</dd></div></dl></section><section class="technical-document-files"><strong>${documentItem.type === 'drawing' ? '施工图原文件' : '上传的原文件'} · ${(documentItem.files || []).length}</strong>${(documentItem.files || []).map((file,index) => `<button type="button" data-technical-detail-file="${index}"><i>${attachmentKind(file) === 'pdf' ? 'PDF' : attachmentKind(file) === 'image' ? 'IMG' : 'FILE'}</i><span><b>${escapeHtml(file.name)}</b><small>${file.stored ? '点击直接在线查看原文件' : '示例文件名；重新上传后可在线查看'}</small></span><em>${documentItem.type === 'drawing' ? '打开图纸' : '查看'}</em></button>`).join('') || '<p>尚未上传原文件</p>'}</section>`;
+  $('#technicalDocumentDetailBody').innerHTML = `<section class="technical-document-paper"><div class="technical-document-stamp ${documentItem.type}"><span>${escapeHtml(technicalTypeLabels[documentItem.type] || '技术文件')}</span><strong>${escapeHtml(documentItem.code)}</strong></div><div class="technical-document-title"><h3>${escapeHtml(documentItem.title)}</h3><span>现行有效</span></div><p>${escapeHtml(documentItem.content)}</p><dl><div><dt>所属单体 / 分区</dt><dd>${escapeHtml(technicalBuildingName(documentItem))}</dd></div><div><dt>适用部位</dt><dd>${escapeHtml(documentItem.scope)}</dd></div><div><dt>发布人</dt><dd>${escapeHtml(documentItem.issuedBy)}</dd></div><div><dt>发布日期</dt><dd>${escapeHtml(documentItem.issuedAt)}</dd></div></dl><button type="button" class="technical-edit-document" data-edit-technical-detail="${documentItem.id}">编辑文件信息与附件</button></section><section class="technical-document-files"><div class="technical-document-files-heading"><strong>${documentItem.type === 'drawing' ? '施工图原文件' : '上传的原文件'} · ${(documentItem.files || []).length}</strong><button type="button" data-reupload-technical="${documentItem.id}">重新上传文件</button></div>${(documentItem.files || []).map((file,index) => `<div class="technical-document-file-item"><button type="button" data-technical-detail-file="${index}"><i>${attachmentKind(file) === 'pdf' ? 'PDF' : attachmentKind(file) === 'image' ? 'IMG' : 'FILE'}</i><span><b>${escapeHtml(file.name)}</b><small>${file.stored ? '点击直接在线查看原文件' : '示例文件名；重新上传后可在线查看'}</small></span><em>${documentItem.type === 'drawing' ? '打开图纸' : '查看'}</em></button><button type="button" class="technical-file-delete" data-delete-technical-file="${index}">删除</button></div>`).join('') || '<p>尚未上传原文件，可点击“重新上传文件”补充。</p>'}</section>`;
   $$('[data-technical-detail-file]', $('#technicalDocumentDetailBody')).forEach(button => button.addEventListener('click', () => previewStoredAttachment((documentItem.files || [])[Number(button.dataset.technicalDetailFile)])));
+  $$('[data-edit-technical-detail], [data-reupload-technical]', $('#technicalDocumentDetailBody')).forEach(button => button.addEventListener('click', () => { $('#technicalDocumentDetailDialog').close(); openTechnicalDocumentDialog(documentItem); }));
+  $$('[data-delete-technical-file]', $('#technicalDocumentDetailBody')).forEach(button => button.addEventListener('click', () => {
+    documentItem.files.splice(Number(button.dataset.deleteTechnicalFile), 1);
+    persistTechnicalDocuments();
+    $('#technicalDocumentDetailDialog').close();
+    openTechnicalDocumentDetail(documentItem.id);
+    showToast('原文件已从该技术文件中删除');
+  }));
   $('#technicalDocumentDetailDialog').showModal();
 }
 
@@ -1438,6 +1757,7 @@ function syncMaterialApprovalNotifications(plan) {
   followups = followups.map(item => {
     if (Number(item.workflowPlanId) !== planId) return item;
     if (item.workflowKind === 'approval') return { ...item, status: Number(item.workflowStep) === currentIndex ? 'pending' : 'done' };
+    if (item.workflowKind === 'approval-reminder') return { ...item, status: Number(item.workflowStep) === currentIndex ? 'pending' : 'done' };
     if (item.workflowKind === 'purchase' && !isMaterialPlanApproved(plan)) return { ...item, status: 'done' };
     if (item.workflowKind === 'return' && !rejectedStep) return { ...item, status: 'done' };
     return item;
@@ -1475,6 +1795,39 @@ function syncMaterialApprovalNotifications(plan) {
   return { notifiedOwner: '', purchaseOpened: false };
 }
 
+function canRemindResourceApproval(plan, currentIndex = -1) {
+  if (!plan || plan.type !== 'material' || currentIndex < 0) return false;
+  const viewer = currentOperatorLabel();
+  const viewerPerson = getCurrentUser();
+  const requester = plan.requester || plan.approvalWorkflow?.find(step => step.role === '提报人')?.owner;
+  const previousOwner = currentIndex > 0 ? plan.approvalWorkflow?.[currentIndex - 1]?.owner : '';
+  const isProjectManager = /项目经理/.test(String(viewerPerson?.role || ''));
+  return viewer && (isProjectManager || viewer === requester || viewer === previousOwner);
+}
+
+function remindResourceApproval(planId) {
+  const plan = resourcePlans.find(item => Number(item.id) === Number(planId));
+  if (!plan) { showToast('没有找到对应的材料计划'); return; }
+  const workflow = plan.approvalWorkflow || [];
+  const currentIndex = workflow.findIndex((step, index) => step.status === 'pending' && workflow.slice(0, index).every(previous => previous.status === 'approved'));
+  if (currentIndex < 0) { showToast('当前没有待催办的审批节点'); return; }
+  if (!canRemindResourceApproval(plan, currentIndex)) { showToast('仅提报人或上一位已通过的审批人可以催办当前节点'); return; }
+  const step = workflow[currentIndex];
+  const existing = followups.find(item => Number(item.workflowPlanId) === Number(plan.id) && item.workflowKind === 'approval-reminder' && Number(item.workflowStep) === currentIndex && item.status !== 'done');
+  const reminder = {
+    category: '审批催办', title: `请审批材料计划：${plan.name}`, requester: currentOperatorLabel(), owner: step.owner, recipient: step.owner,
+    notificationStatus: 'unread', zone: plan.location, due: `${plan.due}T18:00`, urgency: 'urgent', relatedTask: `材料计划审批 · ${plan.name}`,
+    note: `${currentOperatorLabel()}催办${step.role}：当前审批节点尚未完成，请及时处理。`, status: 'pending', reminders: Number(existing?.reminders || 0) + 1,
+    workflowPlanId: Number(plan.id), workflowKind: 'approval-reminder', workflowStep: currentIndex, lastRemindedAt: new Date().toISOString(), lastRemindedBy: currentOperatorLabel()
+  };
+  if (existing) followups = followups.map(item => item.id === existing.id ? { ...item, ...reminder } : item);
+  else followups.unshift({ id: Date.now() + currentIndex, ...reminder, createdAt: new Date().toISOString() });
+  workflow[currentIndex] = { ...step, reminderCount: Number(step.reminderCount || 0) + 1, lastRemindedAt: reminder.lastRemindedAt, lastRemindedBy: reminder.lastRemindedBy };
+  persistResources(); persistFollowups();
+  openResourcePlanDetail(plan.id);
+  showToast(`已向${step.owner}发送审批催办通知`);
+}
+
 function renderResourcesBody() {
   const materialEntries = resourceEntries.filter(item => item.type === 'material');
   const equipmentEntries = resourceEntries.filter(item => item.type === 'equipment');
@@ -1495,18 +1848,40 @@ function renderResourcesBody() {
   } else {
     const type = activeResourceTab === 'materials' ? 'material' : 'equipment';
     const entries = type === 'material' ? materialEntries : equipmentEntries;
+    if (type === 'material') entries.forEach(entry => ensureMaterialDocumentChain(entry));
     const categories = [...new Set(entries.map(item => item.category))];
-    content = `${type === 'material' ? `<div class="resource-category-strip">${categories.map(category => `<span><b>${category}</b>${entries.filter(item => item.category === category).length} 批</span>`).join('')}</div>` : ''}<div class="resource-list"><div class="resource-row header"><span>名称 / 分类</span><span>品牌 / 厂家</span><span>规格型号</span><span>进出场时间</span><span>使用部位</span><span>资料附件</span></div>${entries.map(item => `<button type="button" class="resource-row resource-row-button" data-resource-entry-detail="${item.id}"><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)} · ${item.movement}${item.planId ? ' · 已关联计划' : ''}</small></div><span>${escapeHtml(item.brand)}</span><span>${escapeHtml(item.spec)}</span><span>${new Date(item.arrivalTime).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span><span>${escapeHtml(item.location)}</span><span class="attachment-count">${item.attachments?.length || 0} 个附件 · 查看</span></button>`).join('') || '<div class="resource-empty">还没有登记记录</div>'}</div>`;
+    content = `${type === 'material' ? `<div class="resource-category-strip">${categories.map(category => `<span><b>${category}</b>${entries.filter(item => item.category === category).length} 批</span>`).join('')}</div>` : ''}${renderResourceEntryGroups(entries, type)}`;
   }
   return `<div class="resource-toolbar"><div class="resource-tabs">${tabs.map(([key, label, count]) => `<button type="button" class="${key === activeResourceTab ? 'active' : ''}" data-resource-tab="${key}">${label}<b>${count}</b></button>`).join('')}</div><div class="resource-toolbar-actions">${activeResourceTab !== 'procurement' ? '<button class="resource-register-button" data-new-resource-plan>新增资源计划</button>' : ''}</div></div>${content}`;
 }
 
+function renderResourceLedgerRows(entries, type) {
+  return entries.map(item => `<button type="button" class="resource-row resource-row-button" data-resource-entry-detail="${item.id}"><div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.category)} · ${item.movement}${item.planId ? ' · 已关联计划' : ''}</small></div><span>${escapeHtml(item.brand)}</span><span>${escapeHtml(item.spec)}</span><span>${new Date(item.arrivalTime).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span><span>${escapeHtml(item.location)}</span><span class="attachment-count">${item.attachments?.length || 0} 个附件 · 查看 ${type === 'material' && item.movement === '进场' ? materialDocumentReviewText(item) : ''}</span></button>`).join('') || '<div class="resource-empty">还没有登记记录</div>';
+}
+
+function renderResourceEntryGroups(entries, type) {
+  const header = '<div class="resource-row header"><span>名称 / 分类</span><span>品牌 / 厂家</span><span>规格型号</span><span>进出场时间</span><span>使用部位</span><span>资料附件</span></div>';
+  if (type !== 'material') return `<div class="resource-list">${header}${renderResourceLedgerRows(entries, type)}</div>`;
+  const groups = new Map();
+  entries.forEach(entry => {
+    const date = String(entry.arrivalTime || '').match(/^\d{4}-\d{2}-\d{2}/)?.[0] || '日期未填写';
+    if (!groups.has(date)) groups.set(date, []);
+    groups.get(date).push(entry);
+  });
+  return [...groups.keys()].sort((a, b) => b.localeCompare(a)).map(date => {
+    const rows = groups.get(date).slice().sort((a, b) => String(b.arrivalTime || '').localeCompare(String(a.arrivalTime || '')));
+    return `<section class="resource-day-group" data-resource-date="${escapeHtml(date)}"><div class="resource-day-heading"><h3>${escapeHtml(date)}</h3><span>${rows.length} 条记录 · 点击单条查看附件与资料状态</span></div><div class="resource-list">${header}${renderResourceLedgerRows(rows, type)}</div></section>`;
+  }).join('') || '<div class="resource-empty">还没有登记记录</div>';
+}
+
 function populateResourcePlanRoles(type = 'material') {
-  const select = $('#resourcePlanOwnerRole');
+  const select = $('#resourcePlanOwner');
   const roles = [...new Set(organization.map(person => person.role))];
-  select.innerHTML = roles.map(role => `<option>${escapeHtml(role)}</option>`).join('');
+  select.innerHTML = organization.map(person => `<option value="${escapeHtml(organizationPersonLabel(person))}">${escapeHtml(organizationPersonLabel(person))}</option>`).join('');
   const preferred = type === 'material' ? '材料员' : '设备管理员';
-  select.value = roles.includes(preferred) ? preferred : roles[0];
+  const preferredPerson = organization.find(person => person.role === preferred) || organization[0];
+  if (preferredPerson) select.value = organizationPersonLabel(preferredPerson);
+  $('#resourcePlanOwnerRole').value = preferredPerson?.role || roles[0] || '';
 }
 
 function populateApproverSelect(select, role, selectedValue = '') {
@@ -1552,7 +1927,9 @@ function openResourcePlanDialog(plan = null) {
   form.elements.due.value = plan?.due || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
   form.elements.location.value = plan?.location || '';
   populateResourcePlanRoles(form.elements.type.value);
-  if (plan?.ownerRole) form.elements.ownerRole.value = plan.ownerRole;
+  populateOrganizationPersonSelect(form.elements.owner, plan?.owner || resolveOrganizationOwner(plan?.ownerRole || (form.elements.type.value === 'material' ? '材料员' : '设备管理员')));
+  const selectedOwner = organization.find(person => organizationPersonLabel(person) === form.elements.owner.value);
+  form.elements.ownerRole.value = selectedOwner?.role || plan?.ownerRole || '';
   const workflow = plan?.approvalWorkflow || [];
   populateOrganizationPersonSelect(form.elements.requester, plan?.requester || workflow.find(step => step.role === '提报人')?.owner || matchPersonByRole('施工员'));
   populateApproverSelect(form.elements.productionApprover, '生产经理', workflow.find(step => step.role === '生产经理')?.owner);
@@ -1568,23 +1945,57 @@ function openResourcePlanDialog(plan = null) {
   $('#resourcePlanDialog').showModal();
 }
 
-function populateResourcePlanMatches(type, selectedId = '') {
-  const select = $('#resourcePlanMatch');
-  const candidates = resourcePlans.filter(plan => plan.type === type && !getResourcePlanProgress(plan).complete);
-  select.innerHTML = `<option value="">系统自动匹配最接近的未完成计划</option>${candidates.map(plan => {
-    const progress = getResourcePlanProgress(plan);
-    return `<option value="${plan.id}" ${String(plan.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(plan.name)}｜${escapeHtml(plan.location)}｜余 ${formatResourceQuantity(progress.remaining, progress.planned.unit)}</option>`;
-  }).join('')}`;
-  select.dataset.manual = selectedId ? 'true' : 'false';
+function resourceEntryCategories(type) {
+  return type === 'material' ? ['钢材', '水泥及混凝土', '砌体材料', '防水材料', '装饰材料', '机电材料', '其他材料'] : ['起重设备', '垂直运输设备', '土方机械', '混凝土设备', '临时用电设备', '检测设备', '其他设备'];
 }
 
-function updateResourcePlanRecommendation() {
+function resourceEntryPlanOptions(type, selectedId = '') {
+  const candidates = resourcePlans.filter(plan => plan.type === type && !getResourcePlanProgress(plan).complete);
+  return `<option value="">系统自动匹配最接近的未完成计划</option>${candidates.map(plan => { const progress = getResourcePlanProgress(plan); return `<option value="${plan.id}" ${String(plan.id) === String(selectedId) ? 'selected' : ''}>${escapeHtml(plan.name)}｜${escapeHtml(plan.location)}｜余 ${formatResourceQuantity(progress.remaining, progress.planned.unit)}</option>`; }).join('')}`;
+}
+
+function resourceEntryBatchRowMarkup(row, index, type) {
+  const categories = resourceEntryCategories(type);
+  const proofRequired = type === 'material' && row.movement !== '退场' ? 'required' : '';
+  const proofHint = type === 'material' && row.movement !== '退场' ? '材料进场登记必传' : '可选上传';
+  return `<article class="resource-entry-batch-row" data-resource-entry-row="${index}"><div class="resource-entry-batch-row-heading"><strong>第 ${String(index + 1).padStart(2, '0')} 条到场记录</strong>${index ? `<button type="button" class="icon-button" data-remove-resource-entry-row="${index}" aria-label="删除第${index + 1}条">×</button>` : '<span>材料到场后逐条核对</span>'}</div><div class="form-grid"><label>名称<input data-resource-entry-name required placeholder="例如：HRB400E 钢筋" value="${escapeHtml(row.name || '')}"></label><label>类别<select data-resource-entry-category>${categories.map(category => `<option ${category === row.category ? 'selected' : ''}>${category}</option>`).join('')}</select></label></div><div class="form-grid"><label>品牌 / 生产厂家<input data-resource-entry-brand required value="${escapeHtml(row.brand || '')}"></label><label>规格 / 型号<input data-resource-entry-spec required value="${escapeHtml(row.spec || '')}"></label></div><div class="form-grid"><label>进出场类型<select data-resource-entry-movement><option ${row.movement !== '退场' ? 'selected' : ''}>进场</option><option ${row.movement === '退场' ? 'selected' : ''}>退场</option></select></label><label>到场时间<input type="datetime-local" data-resource-entry-arrival required value="${escapeHtml(row.arrivalTime || defaultDueValue())}"></label></div><div class="form-grid"><label>数量<input data-resource-entry-quantity required placeholder="例如：32.5 t / 1 台" value="${escapeHtml(row.quantity || '')}"></label><label>使用部位 / 安装位置<input data-resource-entry-location required value="${escapeHtml(row.location || '')}"></label></div><label>关联材料设备计划<select data-resource-entry-plan data-manual="${row.planManual ? 'true' : 'false'}">${resourceEntryPlanOptions(type, row.planId || '')}</select><small class="match-hint" data-resource-entry-plan-hint>填写名称和使用部位后，系统会推荐对应计划；也可手动选择</small></label><div class="resource-entry-proof-grid"><label class="${proofRequired ? 'required-upload-field' : ''}">收货单 / 到场签收单<input type="file" data-resource-entry-receipt accept=".pdf,.jpg,.jpeg,.png,.webp" multiple ${proofRequired}><small>${proofHint}</small></label><label class="${proofRequired ? 'required-upload-field' : ''}">到场材料照片 / 验收照片<input type="file" data-resource-entry-photos accept="image/*" capture="environment" multiple ${proofRequired}><small>${proofHint}</small></label><label>合格证、检测报告或其他资料<input type="file" data-resource-entry-certificates accept=".pdf,image/*" multiple><small>已有资料可一并上传</small></label></div><label>备注<textarea data-resource-entry-note rows="2">${escapeHtml(row.note || '')}</textarea></label></article>`;
+}
+
+function captureResourceEntryBatchDraft() {
+  const type = $('#resourceEntryForm')?.elements.resourceType.value || 'material';
+  const rows = $$('#resourceEntryBatchRows [data-resource-entry-row]');
+  resourceEntryBatchDraft = rows.map(row => ({ name: $('[data-resource-entry-name]', row).value, category: $('[data-resource-entry-category]', row).value, brand: $('[data-resource-entry-brand]', row).value, spec: $('[data-resource-entry-spec]', row).value, movement: $('[data-resource-entry-movement]', row).value, arrivalTime: $('[data-resource-entry-arrival]', row).value, quantity: $('[data-resource-entry-quantity]', row).value, location: $('[data-resource-entry-location]', row).value, planId: $('[data-resource-entry-plan]', row).value, planManual: $('[data-resource-entry-plan]', row).dataset.manual === 'true', receipts: [...($('[data-resource-entry-receipt]', row)?.files || [])], certificates: [...($('[data-resource-entry-certificates]', row)?.files || [])], photos: [...($('[data-resource-entry-photos]', row)?.files || [])], note: $('[data-resource-entry-note]', row).value, type }));
+  return resourceEntryBatchDraft;
+}
+
+function renderResourceEntryBatchRows() {
   const form = $('#resourceEntryForm');
-  if ($('#resourcePlanMatch').dataset.manual === 'true') return;
-  const draft = { type: form.elements.resourceType.value, name: form.elements.name.value, location: form.elements.location.value };
+  const type = form.elements.resourceType.value || 'material';
+  $('#resourceEntryBatchRows').innerHTML = resourceEntryBatchDraft.map((row, index) => resourceEntryBatchRowMarkup(row, index, type)).join('');
+  $$('#resourceEntryBatchRows [data-resource-entry-row]').forEach((row, index) => {
+    const draft = resourceEntryBatchDraft[index] || {};
+    [['receipts', '[data-resource-entry-receipt]'], ['certificates', '[data-resource-entry-certificates]'], ['photos', '[data-resource-entry-photos]']].forEach(([key, selector]) => {
+      const files = draft[key] || [];
+      const input = $(selector, row);
+      if (!input || !files.length || typeof DataTransfer !== 'function') return;
+      const transfer = new DataTransfer();
+      files.forEach(file => transfer.items.add(file));
+      input.files = transfer.files;
+    });
+  });
+  $$('#resourceEntryBatchRows [data-resource-entry-name], #resourceEntryBatchRows [data-resource-entry-location]').forEach(input => input.addEventListener('input', event => updateResourceEntryRowRecommendation(event.target.closest('[data-resource-entry-row]'))));
+  $$('#resourceEntryBatchRows [data-resource-entry-plan]').forEach(select => select.addEventListener('change', event => { event.target.dataset.manual = event.target.value ? 'true' : 'false'; const plan = resourcePlans.find(item => String(item.id) === event.target.value); $('[data-resource-entry-plan-hint]', event.target.closest('[data-resource-entry-row]')).textContent = plan ? `已手动关联：${plan.name}（${plan.location}）` : '已恢复系统自动匹配'; }));
+  $$('#resourceEntryBatchRows [data-resource-entry-movement]').forEach(select => select.addEventListener('change', event => { const row = event.target.closest('[data-resource-entry-row]'); const required = type === 'material' && event.target.value === '进场'; ['[data-resource-entry-receipt]', '[data-resource-entry-photos]'].forEach(selector => { const input = $(selector, row); if (input) { input.required = required; input.closest('label')?.classList.toggle('required-upload-field', required); } }); }));
+  $$('[data-remove-resource-entry-row]', $('#resourceEntryBatchRows')).forEach(button => button.addEventListener('click', () => { captureResourceEntryBatchDraft(); resourceEntryBatchDraft.splice(Number(button.dataset.removeResourceEntryRow), 1); renderResourceEntryBatchRows(); }));
+}
+
+function updateResourceEntryRowRecommendation(row) {
+  if (!row || $('[data-resource-entry-plan]', row).dataset.manual === 'true') return;
+  const form = $('#resourceEntryForm');
+  const draft = { type: form.elements.resourceType.value, name: $('[data-resource-entry-name]', row).value, location: $('[data-resource-entry-location]', row).value };
   const match = findBestResourcePlan(draft);
-  $('#resourcePlanMatch').value = match?.id || '';
-  $('#resourcePlanMatchHint').textContent = match ? `系统推荐：${match.name}（${match.location}），可手动修改` : '暂未找到高匹配计划，可继续填写或手动选择';
+  $('[data-resource-entry-plan]', row).value = match?.id || '';
+  $('[data-resource-entry-plan-hint]', row).textContent = match ? `系统推荐：${match.name}（${match.location}），可手动修改` : '暂未找到高匹配计划，可继续填写或手动选择';
 }
 
 function openResourceEntryDialog(type) {
@@ -1592,13 +2003,9 @@ function openResourceEntryDialog(type) {
   form.reset();
   form.elements.resourceType.value = type;
   $('#resourceEntryEyebrow').textContent = type === 'material' ? '材料进场登记' : '设备进出场登记';
-  $('#resourceEntryTitle').textContent = type === 'material' ? '登记材料进场' : '登记设备进出场';
-  $('#certificateLabel').firstChild.textContent = type === 'material' ? '合格证、检测报告或备案资料' : '设备备案证、检测报告或验收资料';
-  const categories = type === 'material' ? ['钢材', '水泥及混凝土', '砌体材料', '防水材料', '装饰材料', '机电材料', '其他材料'] : ['起重设备', '垂直运输设备', '土方机械', '混凝土设备', '临时用电设备', '检测设备', '其他设备'];
-  $('#resourceCategory').innerHTML = categories.map(category => `<option>${category}</option>`).join('');
-  populateResourcePlanMatches(type);
-  $('#resourcePlanMatchHint').textContent = '填写名称和使用部位后，系统会推荐对应计划；也可手动选择';
-  form.elements.arrivalTime.value = defaultDueValue();
+  $('#resourceEntryTitle').textContent = type === 'material' ? '批量登记材料到场' : '批量登记设备进出场';
+  resourceEntryBatchDraft = [{ type, category: resourceEntryCategories(type)[0], movement: type === 'material' ? '进场' : '进场', arrivalTime: defaultDueValue() }];
+  renderResourceEntryBatchRows();
   $('#resourceEntryDialog').showModal();
 }
 
@@ -1623,11 +2030,23 @@ function attachmentKind(file) {
 
 function renderResourceAttachments(entry) {
   if (!entry.attachments?.length) return '<p>没有上传附件</p>';
+  const fileKey = file => file.storageKey || file.data || `${file.name}|${file.size}|${file.type}`;
+  const labels = new Map();
+  (entry.receiptAttachments || []).forEach(file => labels.set(fileKey(file), '收货单'));
+  (entry.photoAttachments || []).forEach(file => labels.set(fileKey(file), '到场/验收照片'));
+  (entry.documentAttachments || []).forEach(file => labels.set(fileKey(file), '合格证/补充资料'));
   return entry.attachments.map((file, index) => {
     const kind = attachmentKind(file);
     const ready = Boolean(file.stored && (file.storageKey || file.data));
-    return `<button type="button" class="resource-attachment-button ${ready ? '' : 'unavailable'}" data-attachment-entry="${entry.id}" data-attachment-index="${index}"><i>${kind === 'image' ? 'IMG' : kind === 'pdf' ? 'PDF' : 'FILE'}</i><div><strong>${escapeHtml(file.name)}</strong><small>${ready ? `${formatAttachmentSize(file.size)} · 点击查看原文件` : '早期示例记录未保存原文件，请重新上传'}</small></div><b>${ready ? '查看' : '未存原件'}</b></button>`;
+    return `<button type="button" class="resource-attachment-button ${ready ? '' : 'unavailable'}" data-attachment-entry="${entry.id}" data-attachment-index="${index}"><i>${kind === 'image' ? 'IMG' : kind === 'pdf' ? 'PDF' : 'FILE'}</i><div><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(labels.get(fileKey(file)) || '资料附件')} · ${ready ? `${formatAttachmentSize(file.size)} · 点击查看原文件` : '早期示例记录未保存原文件，请重新上传'}</small></div><b>${ready ? '查看' : '未存原件'}</b></button>`;
   }).join('');
+}
+
+function materialDocumentReviewText(entry) {
+  const review = entry?.materialDocumentReview || { status: 'pending', missingItems: [] };
+  if (review.status === 'complete') return '<em class="resource-document-state complete">资料已闭环</em>';
+  if (review.status === 'missing') return `<em class="resource-document-state risk">资料缺失：${escapeHtml((review.missingItems || []).join('、') || '待补充')}</em>`;
+  return '<em class="resource-document-state pending">待资料员核查</em>';
 }
 
 function renderStoredFileList(files = [], emptyText = '尚未上传') {
@@ -1689,6 +2108,7 @@ async function withdrawResourcePlan(planId) {
     } catch (error) { showToast(error.message || '服务器撤回失败，请刷新后重试'); return; }
   } else {
     plan.approvalWorkflow.forEach(step => { step.status = 'pending'; delete step.actedAt; delete step.actedBy; delete step.actedByAccount; });
+    markRequesterApproval(plan.approvalWorkflow, plan);
   }
   persistResources(); persistFollowups();
   const updated = resourcePlans.find(item => Number(item.id) === Number(planId));
@@ -1726,12 +2146,16 @@ function openResourcePlanDetail(planId) {
   const purchaseAccess = isMaterialPlanApproved(plan)
     ? `<section class="procurement-gate-panel open"><i>6</i><div><strong>采购材料员已收到</strong><p>项目经理已通过，系统已向 ${escapeHtml(purchaser)} 开放计划并生成“采购待办”。</p></div><em>采购可见</em></section>`
     : `<section class="procurement-gate-panel locked"><i>6</i><div><strong>采购材料员等待接收</strong><p>${currentApproval ? `当前由 ${escapeHtml(currentApproval.owner)} 处理；项目经理通过后才通知 ${escapeHtml(purchaser)}。` : `计划被退回，重新完成五个节点后才通知 ${escapeHtml(purchaser)}。`}</p></div><em>暂不可见</em></section>`;
-  const materialSections = plan.type === 'material' ? `<section class="contract-brand-panel"><div><span>合同品牌要求</span><strong>${plan.contractBrandRequired ? `是 · ${escapeHtml(plan.contractBrand || '待填写品牌')}` : '否 · 合同未指定品牌'}</strong></div><div class="contract-brand-actions">${canWithdrawResourcePlan(plan) ? `<button type="button" data-withdraw-resource-plan="${plan.id}">撤回并修改</button>` : ''}<button type="button" data-edit-resource-plan="${plan.id}">编辑品牌与审批</button></div></section><section class="material-approval-panel"><div class="approval-panel-heading"><div><strong>材料审批流程</strong><small>提报人 → 生产经理 → 技术负责人 → 库管 → 项目经理，逐级通知</small></div><em class="approval-overall ${approvalState}">${approvalLabel}</em></div><div class="approval-viewer"><span>当前登录</span><strong>${escapeHtml(viewerLabel || '未识别账号')}</strong><small>${currentApproval ? (isCurrentUserApprovalOwner(currentApproval) ? '当前审批已分配给你' : '可查看完整进度，不能代替他人审批') : '当前没有待审批节点'}</small></div><div class="approval-flow">${approvalFlow}</div><div class="approval-attachments"><strong>材料审批表 · ${plan.approvalAttachments?.length || 0}</strong>${renderStoredFileList(plan.approvalAttachments || [], '尚未上传材料审批表')}</div></section>${purchaseAccess}` : '';
+  const canRemind = currentApproval && canRemindResourceApproval(plan, workflow.indexOf(currentApproval));
+  const approvalReminder = canRemind ? `<button type="button" class="approval-remind-button" data-remind-resource-approval="${plan.id}">催办${escapeHtml(currentApproval.role)}</button>` : '';
+  const viewerIsProjectManager = /项目经理/.test(String(viewer?.role || ''));
+  const materialSections = plan.type === 'material' ? `<section class="contract-brand-panel"><div><span>合同品牌要求</span><strong>${plan.contractBrandRequired ? `是 · ${escapeHtml(plan.contractBrand || '待填写品牌')}` : '否 · 合同未指定品牌'}</strong></div><div class="contract-brand-actions">${canWithdrawResourcePlan(plan) ? `<button type="button" data-withdraw-resource-plan="${plan.id}">撤回并修改</button>` : ''}<button type="button" data-edit-resource-plan="${plan.id}">编辑品牌与审批</button></div></section><section class="material-approval-panel"><div class="approval-panel-heading"><div><strong>材料审批流程</strong><small>提报人（提交即完成） → 生产经理 → 技术负责人 → 库管 → 项目经理，逐级通知；项目经理可查看全部节点并催办当前待审批人</small></div><em class="approval-overall ${approvalState}">${approvalLabel}</em></div><div class="approval-viewer"><span>当前登录</span><strong>${escapeHtml(viewerLabel || '未识别账号')}</strong><small>${currentApproval ? (isCurrentUserApprovalOwner(currentApproval) ? '当前审批已分配给你' : viewerIsProjectManager ? '项目经理可查看完整进度并催办当前节点' : '可查看完整进度，不能代替他人审批') : '当前没有待审批节点'}</small>${approvalReminder}</div><div class="approval-flow">${approvalFlow}</div><div class="approval-attachments"><strong>材料审批表 · ${plan.approvalAttachments?.length || 0}</strong>${renderStoredFileList(plan.approvalAttachments || [], '尚未上传材料审批表')}</div></section>${purchaseAccess}` : '';
   $('#resourceDetailBody').innerHTML = `<section class="resource-detail-hero ${progress.tone}"><div><span>${progress.status}</span><strong>${progress.percent}%</strong></div><p>${progress.notice}</p><i><em style="width:${progress.percent}%"></em></i></section><div class="resource-detail-grid">${resourceDetailItem('资源类型', plan.type === 'material' ? '材料' : '设备')}${resourceDetailItem('计划数量', escapeHtml(plan.quantity))}${resourceDetailItem('累计到场', formatResourceQuantity(progress.arrived, progress.planned.unit))}${resourceDetailItem('未到数量', formatResourceQuantity(progress.remaining, progress.planned.unit))}${resourceDetailItem('要求到场', plan.due)}${resourceDetailItem('使用部位', escapeHtml(plan.location))}${resourceDetailItem('责任岗位', escapeHtml(plan.ownerRole))}${resourceDetailItem('提前预报', '要求到场前 7 天')}</div>${materialSections}<section class="resource-arrival-history"><strong>关联到场记录 · ${progress.linkedEntries.length} 批</strong>${progress.linkedEntries.map(entry => `<button type="button" data-resource-entry-detail="${entry.id}"><span>${new Date(entry.arrivalTime).toLocaleString('zh-CN')}</span><b>${escapeHtml(entry.quantity)}</b><small>${escapeHtml(entry.brand)} · ${escapeHtml(entry.spec)}</small></button>`).join('') || '<p>暂无到场登记。登记材料或设备时选择本计划，即可自动累计。</p>'}</section>`;
   if (!$('#resourceDetailDialog').open) $('#resourceDetailDialog').showModal();
   $$('[data-resource-entry-detail]', $('#resourceDetailBody')).forEach(button => button.addEventListener('click', () => { $('#resourceDetailDialog').close(); openResourceEntryDetail(button.dataset.resourceEntryDetail); }));
   $('[data-edit-resource-plan]', $('#resourceDetailBody'))?.addEventListener('click', () => { $('#resourceDetailDialog').close(); openResourcePlanDialog(plan); });
   $('[data-withdraw-resource-plan]', $('#resourceDetailBody'))?.addEventListener('click', () => withdrawResourcePlan(plan.id));
+  $('[data-remind-resource-approval]', $('#resourceDetailBody'))?.addEventListener('click', () => remindResourceApproval(plan.id));
   $$('[data-approval-action]', $('#resourceDetailBody')).forEach(button => button.addEventListener('click', () => updateResourceApproval(button.dataset.planId, Number(button.dataset.approvalIndex), button.dataset.approvalAction)));
   const approvalAttachments = $('.approval-attachments', $('#resourceDetailBody'));
   if (approvalAttachments) $$('[data-stored-file-index]', approvalAttachments).forEach(button => button.addEventListener('click', () => previewStoredAttachment(plan.approvalAttachments[Number(button.dataset.storedFileIndex)])));
@@ -1773,16 +2197,103 @@ async function updateResourceApproval(planId, stepIndex, action) {
     : `材料计划已退回，已通知${notification.notifiedOwner}修改`);
 }
 
+function upsertMaterialReviewFollowup(entry, owner, title, note, index = 0) {
+  if (!owner) return;
+  const existing = followups.find(item => Number(item.materialEntryId) === Number(entry.id) && item.materialDocumentReview && item.owner === owner && item.status !== 'done');
+  const payload = { category: '资料补交', title, requester: '资料员 · 材料资料核查', owner, recipient: owner, zone: entry.location, due: defaultDueValue(), urgency: 'urgent', relatedTask: `${entry.name}进场资料闭环`, materialEntryId: entry.id, materialDocumentReview: true, note, status: 'pending', reminders: Number(existing?.reminders || 0), notificationStatus: 'unread', updatedAt: new Date().toISOString() };
+  if (existing) followups = followups.map(item => item.id === existing.id ? { ...item, ...payload } : item);
+  else followups.unshift({ id: Math.max(Date.now() + index, ...followups.map(item => Number(item.id) || 0)) + 1, ...payload, createdAt: new Date().toISOString() });
+}
+
+function openMaterialDocumentReview(entryId) {
+  const entry = resourceEntries.find(item => Number(item.id) === Number(entryId));
+  if (!entry) return;
+  ensureMaterialDocumentChain(entry);
+  const form = $('#materialDocumentReviewForm');
+  form.reset();
+  form.elements.entryId.value = entry.id;
+  const currentReviewStatus = entry.materialDocumentReview?.status;
+  form.elements.status.value = currentReviewStatus === 'pending' ? '' : (currentReviewStatus || '');
+  form.elements.missingItems.value = (entry.materialDocumentReview?.missingItems || []).join('、');
+  populateOrganizationPersonSelect(form.elements.materialClerk, entry.materialDocumentReview?.materialClerk || matchPersonByRole('材料员'));
+  populateOrganizationPersonSelect(form.elements.foreman, entry.materialDocumentReview?.foreman || matchPersonByRole('施工员'));
+  $('#materialDocumentReviewTitle').textContent = `${entry.name} · 资料核查`;
+  $('#materialDocumentReviewSummary').innerHTML = `<div><strong>${escapeHtml(entry.name)}</strong><span>${escapeHtml(entry.quantity)} · ${escapeHtml(entry.location)}</span></div><div class="material-review-proof-summary"><span>收货单 ${entry.receiptAttachments?.length || 0} 份</span><span>到场/验收照片 ${entry.photoAttachments?.length || 0} 张</span><span>其他资料 ${entry.documentAttachments?.length || 0} 份</span></div>${materialDocumentReviewText(entry)}`;
+  $('#materialDocumentReviewDialog').showModal();
+}
+
+async function saveMaterialDocumentReview(form) {
+  const entry = resourceEntries.find(item => Number(item.id) === Number(form.elements.entryId.value));
+  if (!entry) return;
+  ensureMaterialDocumentChain(entry);
+  const status = form.elements.status.value;
+  if (!['pending', 'missing', 'complete'].includes(status)) { showToast('请先选择资料核查结果'); return; }
+  const previousReview = entry.materialDocumentReview;
+  if (status === 'pending' && previousReview.status !== 'pending') { showToast('该记录已核查，请保留现有核查状态后补充上传'); return; }
+  const missingItems = String(form.elements.missingItems.value || '').split(/[、,，\n]/).map(item => item.trim()).filter(Boolean);
+  if (status === 'missing' && !missingItems.length) { showToast('请选择“资料缺失”时，请填写缺少的资料'); return; }
+  const selectedFiles = [...form.elements.files.files];
+  const existingDocuments = (entry.documentAttachments || []).filter(file => file.stored && (file.storageKey || file.data));
+  const hasSupplement = existingDocuments.some(file => !(previousReview.missingDocumentKeys || []).includes(file.storageKey || file.data || `${file.name}|${file.size}`));
+  if (previousReview.status === 'missing' && status === 'complete' && !selectedFiles.length && !(previousReview.missingDocumentKeys && hasSupplement)) {
+    showToast('缺失资料尚未补充上传，不能关闭风险；请先上传补齐的资料'); return;
+  }
+  const snapshot = JSON.parse(JSON.stringify(entry));
+  let entrySaved = false;
+  const submit = form.querySelector('[type="submit"]');
+  submit.disabled = true;
+  submit.textContent = '同步中…';
+  try {
+    const newFiles = await prepareMaterialProofAttachments(selectedFiles);
+    if (newFiles.some(file => !file.stored || !(file.storageKey || file.data))) throw new Error('补充资料原文件未保存成功，请重试');
+    entry.documentAttachments = [...(entry.documentAttachments || []), ...newFiles];
+    entry.attachments = [...(entry.attachments || []), ...newFiles];
+    const materialClerk = form.elements.materialClerk.value || matchPersonByRole('材料员');
+    const foreman = form.elements.foreman.value || matchPersonByRole('施工员');
+    const missingChanged = status === 'missing' && (previousReview.status !== 'missing' || JSON.stringify(previousReview.missingItems) !== JSON.stringify(missingItems));
+    entry.materialDocumentReview = { ...previousReview, status, missingItems: status === 'missing' ? missingItems : [], reviewer: status === 'pending' ? previousReview.reviewer : currentOperatorLabel(), materialClerk, foreman, reviewedAt: status === 'pending' ? previousReview.reviewedAt : new Date().toISOString(), feedbackAt: status === 'missing' ? new Date().toISOString() : (previousReview.feedbackAt || ''), closedAt: status === 'complete' ? new Date().toISOString() : '', missingDocumentKeys: missingChanged ? existingDocuments.map(file => file.storageKey || file.data || `${file.name}|${file.size}`) : (previousReview.missingDocumentKeys || existingDocuments.map(file => file.storageKey || file.data || `${file.name}|${file.size}`)) };
+    persistMaterialEntries();
+    entrySaved = true;
+    const chainKey = ensureMaterialDocumentChain(entry);
+    const certificate = chainKey && documentState[chainKey]?.documents?.find(item => item.id === `${chainKey}-certificate`);
+    if (certificate) certificate.status = status === 'complete' ? 'done' : 'pending';
+    if (status === 'complete') {
+      followups = followups.map(item => Number(item.materialEntryId) === Number(entry.id) && item.materialDocumentReview ? { ...item, status: 'done', completedAt: new Date().toISOString(), completedBy: currentOperatorLabel(), notificationStatus: 'read' } : item);
+    } else if (status === 'missing') {
+      upsertMaterialReviewFollowup(entry, materialClerk, `补齐${entry.name}进场资料`, `资料员核查发现缺少：${missingItems.join('、')}。请材料员取得资料并交资料员补录。`, 1);
+      upsertMaterialReviewFollowup(entry, foreman, `跟进${entry.name}资料补交`, `材料进场资料缺少：${missingItems.join('、')}。请责任工长协助材料员闭环。`, 2);
+    }
+    persistDocumentState(); persistFollowups();
+    form.reset(); $('#materialDocumentReviewDialog').close();
+    if ($('#resourceDetailDialog').open) { $('#resourceDetailDialog').close(); openResourceEntryDetail(entry.id); }
+    if ($('#materials').classList.contains('active')) renderSubview('materials');
+    if ($('#documents').classList.contains('active')) renderSubview('documents');
+    if ($('#intake').classList.contains('active')) renderSubview('intake');
+    showToast(status === 'complete' ? `${entry.name}资料已核查齐全并完成闭环` : status === 'missing' ? `${entry.name}资料缺失已反馈给材料员和责任工长` : '补充资料已保存，仍待资料员核查');
+  } catch (error) {
+    if (!entrySaved) Object.assign(entry, snapshot);
+    showToast(entrySaved ? '资料已保存，待办同步失败，请重试同步' : `保存失败，原附件未改动：${error.message || '请重试'}`);
+  } finally {
+    submit.disabled = false;
+    submit.textContent = '保存核查并同步';
+  }
+}
+
 function openResourceEntryDetail(entryId) {
   const entry = resourceEntries.find(item => Number(item.id) === Number(entryId));
   if (!entry) return;
+  if (entry.type === 'material' && entry.movement === '进场') ensureMaterialDocumentChain(entry);
   delete $('#resourceDetailDialog').dataset.planId;
   const linkedPlan = resourcePlans.find(plan => Number(plan.id) === Number(entry.planId));
   $('#resourceDetailEyebrow').textContent = entry.type === 'material' ? '材料台账详情' : '设备台账详情';
   $('#resourceDetailTitle').textContent = entry.name;
-  $('#resourceDetailBody').innerHTML = `<div class="resource-detail-grid">${resourceDetailItem('类别', escapeHtml(entry.category))}${resourceDetailItem('品牌 / 厂家', escapeHtml(entry.brand))}${resourceDetailItem('规格 / 型号', escapeHtml(entry.spec))}${resourceDetailItem('进出场', entry.movement)}${resourceDetailItem('数量', escapeHtml(entry.quantity))}${resourceDetailItem('时间', new Date(entry.arrivalTime).toLocaleString('zh-CN'))}${resourceDetailItem('使用部位', escapeHtml(entry.location))}${resourceDetailItem('关联计划', linkedPlan ? escapeHtml(linkedPlan.name) : '未关联')}${resourceDetailItem('备注', escapeHtml(entry.note || '无'))}</div><section class="resource-attachments"><strong>资料附件 · ${entry.attachments?.length || 0}</strong>${renderResourceAttachments(entry)}</section>`;
+  const review = entry.materialDocumentReview;
+  const reviewSection = entry.type === 'material' && entry.movement === '进场' ? `<section class="material-document-review-card ${review?.status === 'complete' ? 'closed' : 'risk'}"><div><strong>资料闭环</strong>${materialDocumentReviewText(entry)}<small>材料员：${escapeHtml(review?.materialClerk || matchPersonByRole('材料员'))} · 责任工长：${escapeHtml(review?.foreman || matchPersonByRole('施工员'))}</small>${review?.missingItems?.length ? `<p>待补资料：${escapeHtml(review.missingItems.join('、'))}</p>` : ''}</div><button type="button" class="secondary-button" data-open-material-document-review="${entry.id}">${review?.status === 'complete' ? '补充资料' : '资料核查 / 补充上传'}</button></section>` : '';
+  const supplementButton = entry.type === 'material' && entry.movement === '进场' ? `<button type="button" class="secondary-button" data-open-material-document-review="${entry.id}">＋ 补充上传</button>` : '';
+  $('#resourceDetailBody').innerHTML = `<div class="resource-detail-grid">${resourceDetailItem('类别', escapeHtml(entry.category))}${resourceDetailItem('品牌 / 厂家', escapeHtml(entry.brand))}${resourceDetailItem('规格 / 型号', escapeHtml(entry.spec))}${resourceDetailItem('进出场', entry.movement)}${resourceDetailItem('数量', escapeHtml(entry.quantity))}${resourceDetailItem('时间', new Date(entry.arrivalTime).toLocaleString('zh-CN'))}${resourceDetailItem('使用部位', escapeHtml(entry.location))}${resourceDetailItem('关联计划', linkedPlan ? escapeHtml(linkedPlan.name) : '未关联')}${resourceDetailItem('备注', escapeHtml(entry.note || '无'))}</div>${reviewSection}<section class="resource-attachments"><div class="resource-attachments-heading"><strong>资料附件 · ${entry.attachments?.length || 0}</strong>${supplementButton}</div>${renderResourceAttachments(entry)}</section>`;
   $('#resourceDetailDialog').showModal();
   $$('[data-attachment-entry]', $('#resourceDetailBody')).forEach(button => button.addEventListener('click', () => openResourceAttachment(button.dataset.attachmentEntry, button.dataset.attachmentIndex)));
+  $$('[data-open-material-document-review]', $('#resourceDetailBody')).forEach(button => button.addEventListener('click', () => openMaterialDocumentReview(button.dataset.openMaterialDocumentReview)));
 }
 
 function openResourceWeeklyReport() {
@@ -1823,6 +2334,8 @@ async function extractXlsxText(file) {
   }).join(',')).join('\n');
 }
 
+const ATTENDANCE_PARSE_VERSION = 2;
+
 async function extractAttendanceWorkers(file) {
   try {
     const zip = await JSZip.loadAsync(await file.arrayBuffer());
@@ -1832,27 +2345,44 @@ async function extractAttendanceWorkers(file) {
       const doc = new DOMParser().parseFromString(await sharedEntry.async('text'), 'application/xml');
       [...doc.getElementsByTagName('si')].forEach(item => shared.push(item.textContent || ''));
     }
-    const sheetEntry = zip.file('xl/worksheets/sheet1.xml');
-    if (!sheetEntry) return [];
-    const sheet = new DOMParser().parseFromString(await sheetEntry.async('text'), 'application/xml');
-    const rows = [...sheet.getElementsByTagName('row')].map(row => [...row.getElementsByTagName('c')].map(cell => {
-      const value = cell.getElementsByTagName('v')[0]?.textContent || cell.getElementsByTagName('t')[0]?.textContent || '';
-      return cell.getAttribute('t') === 's' ? (shared[Number(value)] ?? value) : value;
-    }));
-    if (!rows.length) return [];
-    const header = rows[0].map(cell => String(cell ?? '').trim());
-    const findCol = patterns => header.findIndex(item => patterns.some(pattern => pattern.test(item)));
-    const nameCol = findCol([/姓名/, /名字/, /人员/, /员工/]);
-    const tradeCol = findCol([/工种/, /岗位/, /职业/]);
-    const checkInCol = findCol([/上班/, /签到/, /进场/]);
-    const checkOutCol = findCol([/下班/, /签退/, /退场/]);
-    if (nameCol < 0) return [];
-    return rows.slice(1).map(row => ({
-      name: String(row[nameCol] || '').trim(),
-      trade: tradeCol >= 0 ? String(row[tradeCol] || '').trim() : '',
-      checkIn: checkInCol >= 0 ? String(row[checkInCol] || '').trim() : '',
-      checkOut: checkOutCol >= 0 ? String(row[checkOutCol] || '').trim() : ''
-    })).filter(item => item.name);
+    const columnIndex = reference => [...String(reference || '').match(/^[A-Z]+/i)?.[0] || 'A'].reduce((total, letter) => total * 26 + letter.toUpperCase().charCodeAt(0) - 64, 0) - 1;
+    const sheetEntries = Object.keys(zip.files).filter(name => /^xl\/worksheets\/sheet\d+\.xml$/i.test(name));
+    for (const sheetName of sheetEntries) {
+      const sheet = new DOMParser().parseFromString(await zip.file(sheetName).async('text'), 'application/xml');
+      const rows = [...sheet.getElementsByTagName('row')].map(row => {
+        const values = [];
+        [...row.getElementsByTagName('c')].forEach(cell => {
+          const value = cell.getElementsByTagName('v')[0]?.textContent || cell.getElementsByTagName('t')[0]?.textContent || '';
+          values[columnIndex(cell.getAttribute('r'))] = cell.getAttribute('t') === 's' ? (shared[Number(value)] ?? value) : value;
+        });
+        return values;
+      });
+      const headerIndex = rows.slice(0, 30).findIndex(row => row.some(cell => /姓名|名字|人员姓名|员工姓名/.test(String(cell || '').trim())));
+      if (headerIndex < 0) continue;
+      const header = rows[headerIndex].map(cell => String(cell ?? '').trim());
+      const normalizedHeader = header.map(item => item.replace(/\s+/g, ''));
+      const findCol = (exactLabels, patterns, excluded = []) => {
+        const exactIndex = normalizedHeader.findIndex(item => exactLabels.includes(item));
+        if (exactIndex >= 0) return exactIndex;
+        return normalizedHeader.findIndex(item => !excluded.some(pattern => pattern.test(item)) && patterns.some(pattern => pattern.test(item)));
+      };
+      const nameCol = findCol(['姓名', '人员姓名', '员工姓名'], [/姓名/, /名字/, /人员/, /员工/]);
+      const tradeCol = findCol(['工种', '具体工种', '作业工种'], [/工种/, /岗位名称/, /职业/], [/分类/, /类别/]);
+      const teamCol = findCol(['班组', '责任班组', '所属班组'], [/班组/, /劳务队/, /分包单位/]);
+      const checkInCol = findCol(['上班打卡时间', '上班时间', '签到时间'], [/上班/, /签到/, /进场/, /首次打卡/]);
+      const checkOutCol = findCol(['下班打卡时间', '下班时间', '签退时间'], [/下班/, /签退/, /退场/, /末次打卡/]);
+      const statusCol = findCol(['识别状态', '考勤状态', '出勤状态'], [/状态/, /考勤结果/, /出勤情况/]);
+      const workers = rows.slice(headerIndex + 1).map(row => ({
+        name: String(row[nameCol] || '').trim(),
+        trade: tradeCol >= 0 ? String(row[tradeCol] || '').trim() : '',
+        team: teamCol >= 0 ? String(row[teamCol] || '').trim() : '',
+        checkIn: checkInCol >= 0 ? String(row[checkInCol] || '').trim() : '',
+        checkOut: checkOutCol >= 0 ? String(row[checkOutCol] || '').trim() : '',
+        status: statusCol >= 0 ? String(row[statusCol] || '').trim() : ''
+      })).filter(item => item.name && !/合计|汇总|制表|审核/.test(item.name));
+      if (workers.length) return workers;
+    }
+    return [];
   } catch (error) {
     return [];
   }
@@ -1889,9 +2419,11 @@ function recognizedLines(text, fallbackName) {
 }
 
 function renderPlanRecognitionCandidates() {
-  $('#planRecognitionCandidates').innerHTML = planRecognitionCandidates.map((candidate, index) => `<div class="candidate-row" data-plan-candidate="${index}"><input value="${escapeHtml(candidate.title)}" aria-label="识别计划项 ${index + 1}"><button type="button" data-remove-plan-candidate="${index}">移除</button><div class="candidate-meta"><span>${candidate.start} → ${candidate.end}</span><span>待人工校对</span></div></div>`).join('');
-  $$('[data-plan-candidate] input').forEach(input => input.addEventListener('input', () => { planRecognitionCandidates[Number(input.closest('[data-plan-candidate]').dataset.planCandidate)].title = input.value; }));
-  $$('[data-remove-plan-candidate]').forEach(button => button.addEventListener('click', () => { planRecognitionCandidates.splice(Number(button.dataset.removePlanCandidate), 1); renderPlanRecognitionCandidates(); }));
+  const list = $('#planRecognitionCandidates');
+  if (!list) return;
+  list.innerHTML = planRecognitionCandidates.map((candidate, index) => `<div class="candidate-row" data-plan-candidate="${index}"><input value="${escapeHtml(candidate.title)}" aria-label="识别计划项 ${index + 1}"><button type="button" data-remove-plan-candidate="${index}">移除</button><div class="candidate-meta"><span>${candidate.start} → ${candidate.end}</span><span>待人工校对</span></div></div>`).join('');
+  $$('[data-plan-candidate] input', list).forEach(input => input.addEventListener('input', () => { planRecognitionCandidates[Number(input.closest('[data-plan-candidate]').dataset.planCandidate)].title = input.value; }));
+  $$('[data-remove-plan-candidate]', list).forEach(button => button.addEventListener('click', () => { planRecognitionCandidates.splice(Number(button.dataset.removePlanCandidate), 1); renderPlanRecognitionCandidates(); }));
 }
 
 function renderPlanAttachmentList() {
@@ -1916,6 +2448,63 @@ function renderPlanSubtaskList() {
 function addPlanSubtask(subtask = {}) {
   planSubtasksDraft.push({ title: subtask.title || '', owner: subtask.owner || '', team: subtask.team || '' });
   renderPlanSubtaskList();
+}
+
+function organizationSelectOptions(selected = '', emptyLabel = '请选择') {
+  const current = String(selected || '').trim();
+  const options = organization.map(person => organizationPersonLabel(person));
+  if (current && !options.includes(current)) options.unshift(current);
+  return `<option value="">${emptyLabel}</option>${options.map(value => `<option value="${escapeHtml(value)}" ${value === current ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}`;
+}
+
+function responsibilityTeamOptions(selected = '') {
+  const current = String(selected || '').trim();
+  const defaults = ['钢筋班组', '木工一班', '机电二组', '混凝土班组', '设备组', '文明施工班组'];
+  const values = [...new Set([...defaults, ...plans.map(plan => plan.team), ...tasks.map(task => task.team)].filter(Boolean).map(String))];
+  if (current && !values.includes(current)) values.unshift(current);
+  return `<option value="">请选择责任班组</option>${values.map(value => `<option value="${escapeHtml(value)}" ${value === current ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}`;
+}
+
+function renderPlanDayRows() {
+  const list = $('#planDayRowsList');
+  if (!list) return;
+  list.innerHTML = planDayRowsDraft.map((row, index) => `<div class="plan-day-input-row" data-plan-day-row="${index}" data-plan-day-id="${row.id || ''}"><span class="plan-day-row-number">${String(index + 1).padStart(2, '0')}</span><input class="plan-day-title" value="${escapeHtml(row.title || '')}" placeholder="例如：3#楼8F梁板钢筋绑扎"><label><span>需完成</span><input class="plan-day-target" type="number" min="0" max="100" value="${Number(row.dailyTarget ?? 100)}"><em>%</em></label><select class="plan-day-owners" aria-label="责任人">${organizationSelectOptions(String(row.owners || '').split(/[、,，]/)[0], '请选择责任人')}</select><select class="plan-day-team" aria-label="责任班组">${responsibilityTeamOptions(row.team)}</select><button type="button" data-remove-plan-day-row="${index}" aria-label="删除第${index + 1}项工作">×</button></div>`).join('');
+  $$('[data-remove-plan-day-row]', list).forEach(button => button.addEventListener('click', () => {
+    if (planDayRowsDraft.length === 1) planDayRowsDraft[0] = { id: planDayRowsDraft[0].id || null, title: '', dailyTarget: 100, owners: '', team: '' };
+    else planDayRowsDraft.splice(Number(button.dataset.removePlanDayRow), 1);
+    renderPlanDayRows();
+  }));
+  $$('.plan-day-title', list).forEach(input => {
+    input.addEventListener('input', () => { planDayRowsDraft[Number(input.closest('[data-plan-day-row]').dataset.planDayRow)].title = input.value; });
+    input.addEventListener('blur', () => {
+      const index = Number(input.closest('[data-plan-day-row]').dataset.planDayRow);
+      if (!planDayRowsDraft[index].owners && input.value.trim()) {
+        planDayRowsDraft[index].owners = matchResponsible(input.value).owner;
+        renderPlanDayRows();
+      }
+    });
+  });
+  $$('.plan-day-target', list).forEach(input => input.addEventListener('input', () => { planDayRowsDraft[Number(input.closest('[data-plan-day-row]').dataset.planDayRow)].dailyTarget = Math.max(0, Math.min(100, Number(input.value || 0))); }));
+  $$('.plan-day-owners', list).forEach(input => input.addEventListener('change', () => { planDayRowsDraft[Number(input.closest('[data-plan-day-row]').dataset.planDayRow)].owners = input.value; }));
+  $$('.plan-day-team', list).forEach(input => input.addEventListener('change', () => { planDayRowsDraft[Number(input.closest('[data-plan-day-row]').dataset.planDayRow)].team = input.value; }));
+}
+
+function addPlanDayRow(row = {}) {
+  planDayRowsDraft.push({ id: row.id || null, title: row.title || '', dailyTarget: row.dailyTarget ?? 100, owners: row.owners || '', team: row.team || '' });
+  renderPlanDayRows();
+  $('#planDayRowsList .plan-day-input-row:last-child .plan-day-title')?.focus();
+}
+
+function removeDailyPlanById(planId) {
+  const numericId = Number(planId);
+  const removed = plans.find(plan => Number(plan.id) === numericId);
+  if (!removed) return false;
+  const taskIds = tasks.filter(task => Number(task.dayPlanId) === numericId || Number(task.id) === Number(removed.taskId)).map(task => Number(task.id));
+  if (dailyExecution.some(record => ZhuxuMeetingRules.locked(record) && (Number(record.dayPlanId) === numericId || taskIds.includes(Number(record.taskId))))) { showToast('该计划已有例会确认记录，不能撤销'); return false; }
+  plans = plans.filter(plan => Number(plan.id) !== numericId);
+  tasks = tasks.filter(task => !taskIds.includes(Number(task.id)) && Number(task.dayPlanId) !== numericId);
+  dailyExecution = dailyExecution.filter(record => Number(record.dayPlanId) !== numericId && !taskIds.includes(Number(record.taskId)));
+  return true;
 }
 
 function attachDropzoneHandlers(root = document) {
@@ -2006,6 +2595,20 @@ async function recognizeTaskFiles(files) {
 
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); });
+}
+
+async function prepareMaterialProofAttachments(files) {
+  // This workflow must never silently drop selected files or lose their storage references.
+  const results = [];
+  for (const file of files) {
+    const stored = await prepareResourceAttachments([file]);
+    const attachment = stored[0];
+    if (!attachment?.stored || !(attachment.storageKey || attachment.data) || (window.ZhuxuServer?.active && !attachment.storageKey)) {
+      throw new Error(`“${file.name}”原文件未保存成功，请保留表单并重试`);
+    }
+    results.push(attachment);
+  }
+  return results;
 }
 
 async function prepareResourceAttachments(files) {
@@ -2149,7 +2752,14 @@ function exportDocumentLedger() {
   showToast('资料台账已导出为 CSV');
 }
 
+function renderMaterialReviewQueue() {
+  const pending = resourceEntries.filter(entry => entry.type === 'material' && entry.movement === '进场' && entry.materialDocumentReview?.status !== 'complete');
+  return `<section class="document-list-panel material-review-queue"><div class="document-panel-heading"><div><h2>到场材料资料核查 · ${pending.length} 批</h2><p>先核查是否缺资料；缺失项补充上传后再确认齐全，原附件保留在材料台账。</p></div></div>${pending.map(entry => `<button type="button" class="material-review-queue-row" data-resource-entry-detail="${entry.id}"><div><strong>${escapeHtml(entry.name)}</strong><small>${escapeHtml(String(entry.arrivalTime || '').slice(0, 10))} · ${escapeHtml(entry.location)} · ${escapeHtml(entry.quantity)}</small></div>${materialDocumentReviewText(entry)}<span>查看 / 核查 / 补传 →</span></button>`).join('') || '<p class="resource-empty">暂无待核查或缺资料的材料批次。</p>'}</section>`;
+}
+
 function renderDocumentsBody() {
+  resourceEntries.forEach(ensureMaterialDocumentChain);
+  if (!documentState[activeDocumentChain]) activeDocumentChain = Object.keys(documentState)[0];
   if (!Object.keys(documentState).length) {
     return `<div class="document-overview">
       <article class="document-kpi"><span>资料完成率</span><strong>0<small>%</small></strong><p>0 / 0 项已闭环</p></article>
@@ -2173,6 +2783,7 @@ function renderDocumentsBody() {
       <article class="document-kpi"><span>与材料进场关联</span><strong>${Object.values(documentState).filter(group => group.materialEntryId).length}<small>批材料</small></strong><p>${Object.keys(documentState).length} 条资料与工序链路</p></article>
       <article class="document-kpi risk"><span>阻塞施工节点</span><strong>${blockedCount}<small>项</small></strong><p>${blockedCount ? '存在资料未合格的关联工序' : '当前无资料门禁阻塞'}</p></article>
     </div>
+    ${renderMaterialReviewQueue()}
     <section class="document-chain-panel">
       <div class="document-panel-heading"><div><h2>材料与施工资料链 · ${config.label}</h2><p>材料进场、送检、报告和使用部位形成可追溯放行关系</p></div><button data-chain-update="${activeDocumentChain}">登记送检结果</button></div>
       <div class="chain-switcher" role="tablist" aria-label="切换施工资料链">
@@ -2349,15 +2960,48 @@ function openLaborerDialog(laborer = null) {
   $('#laborerDialog').showModal();
 }
 
+async function previewAttendanceRecord(record) {
+  if (!record) return;
+  let workers = record.workers || [];
+  const needsReparse = !workers.length || Number(record.attendanceParseVersion || 0) < ATTENDANCE_PARSE_VERSION;
+  if (needsReparse && record.attachment?.storageKey) {
+    try {
+      const storedFile = await getResourceAttachment(record.attachment.storageKey);
+      if (storedFile?.blob && /\.(xlsx|xls)$/i.test(record.attachment.name || '')) {
+        const sourceFile = new File([storedFile.blob], record.attachment.name, { type: storedFile.type || record.attachment.type });
+        workers = await extractAttendanceWorkers(sourceFile);
+        workers = workers.map(worker => {
+          const match = laborers.find(laborer => laborer.name === worker.name);
+          return match ? { ...worker, matched: true, laborerId: match.id } : { ...worker, matched: false };
+        });
+        if (workers.length) {
+          record.workers = workers;
+          record.attendanceParseVersion = ATTENDANCE_PARSE_VERSION;
+          persistAttendance();
+          if ($('#attendanceHistoryDialog').open) renderAttendanceHistory(record.id);
+        }
+      }
+    } catch (error) { /* 继续显示原附件或识别提示 */ }
+  }
+  if (record.attachment) await previewStoredAttachment(record.attachment);
+  if (!workers.length) {
+    if (!record.attachment?.storageKey && !record.attachment?.data) showToast('该记录没有可读取的原考勤表，请重新上传后识别');
+    return;
+  }
+  $('#attachmentPreviewTitle').textContent = `${record.date} 考勤表识别内容`;
+  $('#attachmentPreviewBody').innerHTML = `<section class="attendance-sheet-preview"><div><strong>已识别 ${workers.length} 人</strong><span>姓名、班组、工种和打卡时间来自上传的原考勤表</span></div><div class="attendance-sheet-table"><div class="attendance-sheet-row header"><span>姓名</span><span>班组</span><span>工种</span><span>上班打卡</span><span>下班打卡</span><span>识别状态</span></div>${workers.map(worker => `<div class="attendance-sheet-row"><strong>${escapeHtml(worker.name)}</strong><span>${escapeHtml(worker.team || '—')}</span><span>${escapeHtml(worker.trade || '—')}</span><span>${escapeHtml(worker.checkIn || '—')}</span><span>${escapeHtml(worker.checkOut || '—')}</span><em class="${worker.matched ? 'matched' : ''}">${worker.matched ? '已匹配花名册' : escapeHtml(worker.status || '待匹配')}</em></div>`).join('')}</div></section>`;
+  if (!$('#attachmentPreviewDialog').open) $('#attachmentPreviewDialog').showModal();
+}
+
 function renderAttendanceHistory(selectedId = null) {
   const records = [...attendanceRecords].sort((a,b) => b.date.localeCompare(a.date));
   const selected = records.find(record => Number(record.id) === Number(selectedId)) || records[0];
   const rate = selected?.planned ? Math.round(selected.actual / selected.planned * 100) : 0;
   const selectedWindow = selected ? attendanceSupplementWindow(selected) : null;
   const supplementAudit = selected?.supplements?.length ? `<section class="supplement-audit-list"><strong>核对补录记录 · ${selected.supplements.length}</strong>${selected.supplements.map((item,index) => `<div><span>${new Date(item.createdAt).toLocaleString('zh-CN')}</span><b>${item.previousActual} → ${item.actual} 人</b><p>${escapeHtml(item.reason)} · ${escapeHtml(item.operator)}</p><button type="button" data-supplement-file="${index}">${escapeHtml(item.attachment?.name || '未上传补录依据')}</button></div>`).join('')}</section>` : '';
-  $('#attendanceHistoryBody').innerHTML = selected ? `<section class="attendance-day-detail"><div><span>${selected.date}</span><strong>${selected.actual} / ${selected.planned} 人</strong><small>到岗率 ${rate}% · 登记人 ${escapeHtml(selected.officer)}</small></div><div><p>${escapeHtml(selected.note || '当日考勤纪律正常，无补充说明。')}</p>${selected.supplements?.length ? `<small>已补录 ${selected.supplements.length} 次 · 最近：${escapeHtml(selected.supplements.at(-1).reason)}</small>` : '<small>尚无核对补录记录</small>'}</div><div class="attendance-day-actions"><button type="button" data-attendance-file>${escapeHtml(selected.attachment?.name || '未上传考勤附件')}</button><button type="button" class="${selectedWindow.allowed ? 'supplement-open' : 'supplement-locked'}" data-supplement-attendance="${selected.id}" ${selectedWindow.allowed ? '' : 'disabled'}>${attendanceSupplementLabel(selected)}</button></div></section>
+  $('#attendanceHistoryBody').innerHTML = selected ? `<section class="attendance-day-detail"><div><span>${selected.date}</span><strong>${selected.actual} / ${selected.planned} 人</strong><small>到岗率 ${rate}% · 登记人 ${escapeHtml(selected.officer)}</small></div><div><p>${escapeHtml(selected.note || '当日考勤纪律正常，无补充说明。')}</p><small>${selected.workers?.length ? `已从原表识别 ${selected.workers.length} 人，可直接查看明细` : '尚未识别人员明细，点击原表重新识别'}${selected.supplements?.length ? ` · 已补录 ${selected.supplements.length} 次` : ''}</small></div><div class="attendance-day-actions"><button type="button" data-attendance-file>识别并查看：${escapeHtml(selected.attachment?.name || '未上传考勤附件')}</button><button type="button" class="${selectedWindow.allowed ? 'supplement-open' : 'supplement-locked'}" data-supplement-attendance="${selected.id}" ${selectedWindow.allowed ? '' : 'disabled'}>${attendanceSupplementLabel(selected)}</button></div></section>
     ${supplementAudit}<div class="attendance-history-table"><div class="attendance-history-row header"><span>日期</span><span>实际 / 计划</span><span>到岗率</span><span>考勤纪律</span><span>补录状态</span><span>原始附件</span></div>${records.map(record => `<button type="button" class="attendance-history-row ${Number(record.id) === Number(selected.id) ? 'active' : ''}" data-attendance-history-select="${record.id}"><strong>${record.date}</strong><span>${record.actual} / ${record.planned} 人</span><span>${record.planned ? Math.round(record.actual / record.planned * 100) : 0}%</span><span>${escapeHtml(record.note || '正常')}</span><span class="supplement-state ${attendanceSupplementWindow(record).allowed ? 'open' : 'closed'}">${attendanceSupplementLabel(record)}</span><span>${escapeHtml(record.attachment?.name || '未上传')}</span></button>`).join('')}</div>` : '<div class="resource-empty">暂无考勤记录</div>';
-  $('[data-attendance-file]')?.addEventListener('click', () => selected.attachment ? previewStoredAttachment(selected.attachment) : showToast('该日尚未上传考勤附件'));
+  $('[data-attendance-file]')?.addEventListener('click', () => selected.attachment ? previewAttendanceRecord(selected) : showToast('该日尚未上传考勤附件'));
   $$('[data-attendance-history-select]', $('#attendanceHistoryBody')).forEach(button => button.addEventListener('click', () => renderAttendanceHistory(button.dataset.attendanceHistorySelect)));
   $$('[data-supplement-attendance]', $('#attendanceHistoryBody')).forEach(button => button.addEventListener('click', () => openAttendanceSupplement(button.dataset.supplementAttendance)));
   $$('[data-supplement-file]', $('#attendanceHistoryBody')).forEach(button => button.addEventListener('click', () => previewStoredAttachment(selected.supplements[Number(button.dataset.supplementFile)].attachment)));
@@ -2442,12 +3086,14 @@ function renderCollectionRegister() {
 function getDailyExecutionRecord(taskId, date = activeExecutionDate, dayPlan = null) {
   let record = dailyExecution.find(item => Number(item.taskId) === Number(taskId) && item.date === date);
   if (!record && dayPlan) record = dailyExecution.find(item => Number(item.dayPlanId) === Number(dayPlan.id) && item.date === date);
+  if (record && dayPlan?.team && record.team !== dayPlan.team) record.team = dayPlan.team;
   if (!record) {
     const task = tasks.find(item => Number(item.id) === Number(taskId));
+    const plannedTeam = dayPlan?.team || task?.team || task?.owner || '待安排班组';
     const isPast = date < dailyDateKey;
     record = isPast
-      ? { taskId: Number(taskId), dayPlanId: dayPlan?.id || null, weekPlanId: dayPlan?.parentId || null, date, team: task?.owner || '待安排班组', plannedWorkers: 0, actualWorkers: 0, progress: 100, actualQuantity: '按计划完成（待确认）', materialPercent: 100, materialText: '默认按计划完成，待确认', documentDone: 0, documentTotal: 1, documentText: '待确认', note: '系统默认按计划完成，请责任人确认或修改', confirmed: false, autoGenerated: true }
-      : { taskId: Number(taskId), dayPlanId: dayPlan?.id || null, weekPlanId: dayPlan?.parentId || null, date, team: task?.owner || '待安排班组', plannedWorkers: 0, actualWorkers: 0, progress: date === dailyDateKey && task?.status === 'done' ? 100 : date === dailyDateKey && task?.status === 'doing' ? 50 : 0, actualQuantity: '待反馈', materialPercent: 0, materialText: '待核对材料计划和到场情况', documentDone: 0, documentTotal: 1, documentText: '待核对资料条件', note: '尚未提交施工反馈' };
+      ? { taskId: Number(taskId), dayPlanId: dayPlan?.id || null, weekPlanId: dayPlan?.parentId || null, date, team: plannedTeam, plannedWorkers: 0, actualWorkers: 0, progress: 100, actualQuantity: '按计划完成（待确认）', materialPercent: 100, materialText: '默认按计划完成，待确认', documentDone: 0, documentTotal: 1, documentText: '待确认', note: '系统默认按计划完成，请责任人确认或修改', confirmed: false, autoGenerated: true }
+      : { taskId: Number(taskId), dayPlanId: dayPlan?.id || null, weekPlanId: dayPlan?.parentId || null, date, team: plannedTeam, plannedWorkers: 0, actualWorkers: 0, progress: date === dailyDateKey && task?.status === 'done' ? 100 : date === dailyDateKey && task?.status === 'doing' ? 50 : 0, actualQuantity: '待反馈', materialPercent: 0, materialText: '待核对材料计划和到场情况', documentDone: 0, documentTotal: 1, documentText: '待核对资料条件', note: '尚未提交施工反馈' };
     dailyExecution.push(record);
   }
   return record;
@@ -2455,7 +3101,7 @@ function getDailyExecutionRecord(taskId, date = activeExecutionDate, dayPlan = n
 
 function getDailyTaskContexts(date = activeExecutionDate) {
   const contexts = [];
-  plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date).sort((a, b) => Number(a.id) - Number(b.id)).forEach(dayPlan => {
+  plans.filter(plan => plan.level === 'day' && !plan.archived && plan.start <= date && plan.end >= date).sort((a, b) => Number(a.id) - Number(b.id)).forEach(dayPlan => {
     const taskList = getDayPlanTaskList(dayPlan);
     if (taskList.length) {
       taskList.forEach(task => contexts.push({ task, dayPlan, record: getDailyExecutionRecord(task.id, date, dayPlan) }));
@@ -2467,23 +3113,6 @@ function getDailyTaskContexts(date = activeExecutionDate) {
   return contexts;
 }
 
-function calculateWeeklyProgress(date = activeExecutionDate, contexts = getDailyTaskContexts(date)) {
-  const parentIds = [...new Set(contexts.map(item => Number(item.dayPlan.parentId)).filter(Boolean))];
-  const weekPlans = plans.filter(plan => plan.level === 'week' && parentIds.includes(Number(plan.id)));
-  const weekDayPlans = plans.filter(plan => plan.level === 'day' && parentIds.includes(Number(plan.parentId)));
-  const totalWeight = weekDayPlans.reduce((sum, plan) => sum + Number(plan.weight || 1), 0);
-  const duePlans = weekDayPlans.filter(plan => plan.start <= date);
-  const plannedWeight = duePlans.reduce((sum, plan) => sum + Number(plan.weight || 1), 0);
-  const actualWeight = duePlans.reduce((sum, plan) => {
-    const record = getPlanExecutionRecord(plan);
-    return sum + Number(plan.weight || 1) * Math.min(100, Number(record?.progress || 0)) / 100;
-  }, 0);
-  const planned = totalWeight ? Math.round(plannedWeight / totalWeight * 100) : 0;
-  const actual = totalWeight ? Math.round(actualWeight / totalWeight * 100) : 0;
-  const deviation = actual - planned;
-  const state = deviation < -5 ? 'lagging' : deviation > 3 ? 'ahead' : 'normal';
-  return { weekPlans, planned, actual, deviation, state, label: state === 'lagging' ? '周进度滞后' : state === 'ahead' ? '周进度提前' : '周进度正常' };
-}
 
 function dailyReadinessMeta(percent) {
   return percent >= 100 ? { label: '满足', className: 'ready' } : percent >= 70 ? { label: '部分满足', className: 'warning' } : { label: '不满足', className: 'blocked' };
@@ -2509,26 +3138,27 @@ function renderDailyTaskRow(context, index) {
   const workerGap = Math.max(0, Number(record.plannedWorkers || 0) - Number(record.actualWorkers || 0));
   const lagDays = record.date < dailyDateKey ? Math.round((new Date(`${dailyDateKey}T12:00:00`) - new Date(`${record.date}T12:00:00`)) / 86400000) : 0;
   const showLag = lagDays > 0 && record.autoGenerated !== true;
-  const needsConfirm = record.autoGenerated === true && record.confirmed !== true;
+  const needsConfirm = !ZhuxuMeetingRules.locked(record);
+  const plannedPercent = Number(record.plannedTarget ?? dayPlan.dailyTarget ?? 100);
   return `<article class="daily-task-row ${task.priority === 'risk' ? 'risk' : ''} ${showLag ? 'lagging' : ''}" data-daily-task="${task.id}" data-day-plan="${dayPlan.id}" data-record-date="${record.date}">
-    <div class="daily-task-identity"><span class="daily-sequence">${String(index + 1).padStart(2,'0')}</span><div><strong>${escapeHtml(task.title)}</strong>${showLag ? `<em class="lag-badge">滞后 ${lagDays} 天</em>` : ''}${needsConfirm ? '<em class="confirm-badge">待确认</em>' : ''}<small>日计划 #${dayPlan.id} · ${escapeHtml(weekPlan?.title || '待关联周计划')}</small><small>${escapeHtml(task.zone)} · ${escapeHtml(task.owner)} → ${escapeHtml(record.team)}</small><div class="daily-task-progress"><i style="width:${Math.min(100, Number(record.progress || 0))}%"></i></div><em>${record.progress}% · ${escapeHtml(record.actualQuantity || '待反馈')}</em></div></div>
+    <div class="daily-task-identity"><span class="daily-sequence">${String(index + 1).padStart(2,'0')}</span><div><strong>${escapeHtml(task.title)} · 计划完成${plannedPercent}%</strong>${showLag ? `<em class="lag-badge">滞后 ${lagDays} 天</em>` : ''}${needsConfirm ? '<em class="confirm-badge">待确认</em>' : ''}<small>日计划 #${dayPlan.id} · ${escapeHtml(weekPlan?.title || '待关联周计划')}</small><small>${escapeHtml(task.zone)} · ${escapeHtml(task.owner)} → ${escapeHtml(record.team)}</small><div class="daily-task-progress"><i style="width:${ZhuxuMeetingRules.progress(record)}%"></i></div><em class="daily-plan-percent">${ZhuxuMeetingRules.locked(record) ? `实际完成率 ${record.actualCompletion}%（占当日计划） · 折合目标 ${record.achievedTarget}% · 已确认锁定` : '实际完成率待例会确认'}</em></div></div>
     <button type="button" class="daily-worker-cell daily-worker-open" data-workers="${task.id}"><span>班组人员</span><strong>${record.actualWorkers}<small> / ${record.plannedWorkers} 人</small></strong><em class="${workerGap ? 'warning' : 'ready'}">${workerGap ? `缺 ${workerGap} 人` : '点击查看打卡明细'}</em></button>
-    <button type="button" class="daily-condition ${notice ? 'notice' : 'ready'}" data-technical-task="${task.id}">${notice ? '<i class="daily-risk-flag">!</i>' : ''}<span>技术交底</span><strong>${notice ? `⚠ ${escapeHtml(notice.type)}` : '常规施工'}</strong><small>${notice ? `${acknowledged}/${requiredAcknowledgements} 人确认 · 查看变更内容` : '点击查看交底要求'}</small></button>
-    <button type="button" class="daily-feedback-action" data-daily-feedback="${task.id}" data-feedback-date="${record.date}" ${editable ? '' : 'disabled'}>${needsConfirm ? '⚠ 确认 / 修改' : editable ? (isToday ? '反馈进度' : '编辑记录') : '历史记录'}</button>
+    <button type="button" class="daily-condition ${notice ? 'notice' : 'ready'}" data-technical-task="${task.id}">${notice ? '<i class="daily-risk-flag" aria-label="存在技术风险">!</i>' : ''}<span>技术交底</span><strong>${notice ? `⚠ ${escapeHtml(notice.type)} · 风险提示` : '常规施工'}</strong><small>${notice ? `${acknowledged}/${requiredAcknowledgements} 人确认 · 已上传文件，点击查看` : '点击查看交底要求'}</small></button>
+    <button type="button" class="daily-feedback-action" data-daily-feedback="${task.id}" data-feedback-date="${record.date}" ${editable ? '' : 'disabled'}>${editable ? '施工记录（完成率由例会确认）' : '历史记录'}</button>
   </article>`;
 }
 
 function getDailyCompletionSummary(date) {
   const contexts = getDailyTaskContexts(date);
   const records = contexts.map(item => item.record);
-  const completed = records.filter(item => Number(item.progress) >= 100).length;
-  const rate = records.length ? Math.round(records.reduce((sum, item) => sum + Math.min(100, Number(item.progress || 0)), 0) / records.length) : 0;
+  const completed = records.filter(item => ZhuxuMeetingRules.progress(item) >= 100).length;
+  const rate = records.length ? Math.round(records.reduce((sum, item) => sum + ZhuxuMeetingRules.progress(item), 0) / records.length) : 0;
   return { total: contexts.length, completed, rate };
 }
 
 function getCarryoverContexts(date) {
   const contexts = [];
-  plans.filter(plan => plan.level === 'day' && plan.start <= date && plan.end >= date).sort((a, b) => Number(a.id) - Number(b.id)).forEach(dayPlan => {
+  plans.filter(plan => plan.level === 'day' && !plan.archived && plan.start <= date && plan.end >= date).sort((a, b) => Number(a.id) - Number(b.id)).forEach(dayPlan => {
     getDayPlanTaskList(dayPlan).forEach(task => {
       const record = dailyExecution.find(item => Number(item.taskId) === Number(task.id) && item.date === date)
         || dailyExecution.find(item => Number(item.dayPlanId) === Number(dayPlan.id) && item.date === date);
@@ -2541,18 +3171,23 @@ function getCarryoverContexts(date) {
 function renderIntakeBody() {
   const taskContexts = getDailyTaskContexts(activeExecutionDate);
   const yesterday = shiftDateKey(activeExecutionDate, -1);
-  const carryovers = getCarryoverContexts(yesterday).filter(item => Number(item.record.progress || 0) < 100 && Number(item.task.id) !== 4);
+  const carryovers = getCarryoverContexts(yesterday).filter(item => ZhuxuMeetingRules.progress(item.record) < 100 && Number(item.task.id) !== 4);
   const allContexts = activeExecutionDate === dailyDateKey ? [...carryovers, ...taskContexts] : taskContexts;
   const totalCount = allContexts.length;
-  const doneCount = allContexts.filter(item => Number(item.record.progress) >= 100).length;
-  const rate = totalCount ? Math.round(allContexts.reduce((sum,item) => sum + Math.min(100, Number(item.record.progress || 0)), 0) / totalCount) : 0;
-  const weekly = calculateWeeklyProgress(activeExecutionDate, taskContexts);
+  const doneCount = allContexts.filter(item => ZhuxuMeetingRules.progress(item.record) >= 100).length;
+  const rate = totalCount ? Math.round(allContexts.reduce((sum,item) => sum + ZhuxuMeetingRules.progress(item.record), 0) / totalCount) : 0;
   const weekStart = shiftDateKey(activeExecutionDate, -((new Date(`${activeExecutionDate}T12:00:00`).getDay() + 6) % 7));
   const weekDates = Array.from({ length: 7 }, (_, index) => shiftDateKey(weekStart, index));
   const weekDayLabels = ['周一','周二','周三','周四','周五','周六','周日'];
   const materialRisks = resourcePlans.map(plan => { try { return { plan, progress: getResourcePlanProgress(plan) }; } catch { return { plan, progress: { complete: false, days: 0, arrived: 0, planned: { unit: '' } } }; } }).filter(item => !item.progress.complete).slice(0, 5);
-  const materialCoordination = materialRisks.map(({ plan, progress }) => ({ material: true, id: `mat-${plan.id}`, category: '材料保障', content: `${plan.name}：已到 ${formatResourceQuantity(progress.arrived, progress.planned.unit)} / ${plan.quantity}，要求 ${plan.due} 到场`, owner: plan.ownerRole || '材料员', due: plan.due }));
-  const coordinationItems = [...materialCoordination, ...dailyCoordination.filter(item => activeExecutionDate === dailyDateKey || String(item.due || '').startsWith(activeExecutionDate)).sort((a,b) => (a.status === 'resolved') - (b.status === 'resolved'))];
+  const materialCoordination = materialRisks.map(({ plan, progress }) => {
+    const reminder = followups.find(item => Number(item.workflowPlanId) === Number(plan.id) && item.workflowKind === 'arrival' && item.status !== 'done');
+    return { material: true, id: `mat-${plan.id}`, planId: plan.id, category: '材料保障', content: `${plan.name}：已到 ${formatResourceQuantity(progress.arrived, progress.planned.unit)} / ${plan.quantity}，要求 ${plan.due} 到场`, owner: reminder?.owner || plan.owner || resolveOrganizationOwner(plan.ownerRole || '材料员'), due: plan.due, reminders: Number(reminder?.reminders || 0) };
+  });
+  const followupCoordination = followups.filter(item => item.status !== 'done' && item.workflowKind !== 'arrival').map(item => ({ ...item, followup: true, content: item.title }));
+  const coordinationItems = dailyCoordination
+    .filter(item => item.source === 'daily-meeting' && String(item.due || '').startsWith(activeExecutionDate) && !['材料问题', '资料问题'].includes(item.category))
+    .sort((a,b) => (a.status === 'resolved') - (b.status === 'resolved'));
   const documentRisks = Object.entries(documentState).flatMap(([key,group]) => (group.documents || []).filter(item => item.status !== 'done').map(item => {
     const entry = resourceEntries.find(entry => Number(entry.id) === Number(group.materialEntryId));
     return { ...item, group: documentChainConfigs[key]?.label || key, location: group.linkedProcess || entry?.location || '' };
@@ -2562,25 +3197,43 @@ function renderIntakeBody() {
   const currentLabel = activeExecutionDate === dailyDateKey ? '今日' : activeExecutionDate;
   const dayLabel = formatDayLabel(activeExecutionDate);
   const planHeading = activeExecutionDate === dailyDateKey ? `今日计划 · ${dayLabel}` : `${dayLabel}计划`;
-  return `<section class="daily-query-bar"><div><span>执行日期</span><button type="button" data-daily-date-step="-1" aria-label="前一天">←</button><input type="date" id="dailyExecutionDate" value="${activeExecutionDate}"><button type="button" data-daily-date-step="1" aria-label="后一天">→</button><button type="button" data-daily-today ${activeExecutionDate === dailyDateKey ? 'disabled' : ''}>回到今天</button></div><p>任务来源：日进度计划 · 周完成率来自每日执行反馈 · 人员投入只读取实名制打卡记录</p></section>
-    <section class="today-plan-register"><div class="daily-section-heading"><div><strong>${planHeading}</strong><small>计划名称和责任人来自当日进度计划，点击下方任务可反馈执行情况</small></div><span>${taskContexts.length} 项计划</span></div><div>${taskContexts.map((item,index) => `<article><i>${String(index + 1).padStart(2,'0')}</i><div><strong>${escapeHtml(item.dayPlan.title)}</strong><small>${escapeHtml(item.task.zone)} · 所属：${escapeHtml(plans.find(plan => Number(plan.id) === Number(item.dayPlan.parentId))?.title || '待关联周计划')}</small></div><span>责任人</span><b>${escapeHtml(item.task.owner)}</b></article>`).join('') || '<div class="resource-empty">该日期尚未编制日进度计划。</div>'}</div></section>
+  return `<section class="daily-query-bar"><div><span>执行日期</span><button type="button" data-daily-date-step="-1" aria-label="前一天">←</button><input type="date" id="dailyExecutionDate" value="${activeExecutionDate}"><button type="button" data-daily-date-step="1" aria-label="后一天">→</button><button type="button" data-daily-today ${activeExecutionDate === dailyDateKey ? 'disabled' : ''}>回到今天</button></div><p>任务来源：日进度计划 · 实际完成率来自例会锁定记录 · 人员投入只读取实名制打卡记录</p></section>${renderLinkedProgress(activeExecutionDate)}
+    <section class="today-plan-register"><div class="daily-section-heading"><div><strong>${planHeading}</strong><small>计划名称、责任人和责任班组来自当日日进度计划，点击任务可反馈执行情况</small></div><span>${taskContexts.length} 项计划</span></div><div>${taskContexts.map((item,index) => { const plannedTeam = item.dayPlan.team || item.record.team || '待安排'; const plannedPercent = Number(item.dayPlan.dailyTarget ?? 100); return `<article><i>${String(index + 1).padStart(2,'0')}</i><div><strong>${escapeHtml(item.dayPlan.title)}完成${plannedPercent}%</strong><small>${escapeHtml(item.task.zone)} · 所属：${escapeHtml(plans.find(plan => Number(plan.id) === Number(item.dayPlan.parentId))?.title || '待关联周计划')}</small></div><div class="today-plan-responsibility"><span>责任人</span><b>${escapeHtml(item.task.owner)}</b></div><div class="today-plan-responsibility"><span>责任班组</span><b>${escapeHtml(plannedTeam)}</b></div></article>`; }).join('') || '<div class="resource-empty">该日期尚未编制日进度计划。</div>'}</div></section>
     <section class="daily-command-board weekly-command-board">
-      <div class="daily-command-copy"><span>WEEKLY CONTROL · ${weekStart}—${shiftDateKey(weekStart,6)}</span><h2>本周计划完成情况</h2><p>逐日对照完成比例和实名制考勤投入；完成率来自日计划反馈，人员数据只采用劳资员上传的打卡记录。</p></div>
-      <div class="weekly-progress-compare ${weekly.state}"><div><span>所属周计划</span><strong>${weekly.weekPlans.map(item => item.title).join(' · ') || '尚未关联周计划'}</strong></div><div><span>周计划应完成</span><b>${weekly.planned}%</b><i><em style="width:${weekly.planned}%"></em></i></div><div><span>周累计实际完成</span><b>${weekly.actual}%</b><i><em style="width:${weekly.actual}%"></em></i></div><mark>${weekly.label} ${weekly.deviation > 0 ? '+' : ''}${weekly.deviation}%</mark></div>
+      <div class="daily-command-copy"><span>WEEKLY CONTROL · ${weekStart}—${shiftDateKey(weekStart,6)}</span><h2>本周执行与人员投入</h2><p>每日执行率用于查看任务完成情况，不等于周/月工程进度；工程进度以上方关联目标统计为准。</p></div>
+      <div class="weekly-progress-compare"><div><span>周进度口径</span><strong>按上方月 / 周目标的工程量、节点或明确权重分别核对；未关联的工作不自动汇总。</strong></div></div>
       <section class="weekly-daily-ledger"><div class="weekly-ledger-heading"><strong>每日完成情况</strong><span>本周日计划执行百分比</span></div><div>${weekDates.map((date,index) => { const summary = getDailyCompletionSummary(date); const state = !summary.total ? 'empty' : summary.rate >= 100 ? 'done' : date < dailyDateKey ? 'lag' : 'active'; return `<article class="${state} ${date === activeExecutionDate ? 'selected' : ''}"><span>${weekDayLabels[index]} · ${date.slice(5)}</span><strong>${summary.total ? `${summary.rate}%` : '无计划'}</strong><small>${summary.total ? `${summary.completed}/${summary.total} 项完成` : '未编制日计划'}</small><i><em style="width:${summary.rate}%"></em></i></article>`; }).join('')}</div></section>
       <section class="weekly-workforce-ledger"><div class="weekly-ledger-heading"><strong>本周每日投入人员</strong><span>与实名制打卡人数保持一致</span></div><div>${weekDates.map((date,index) => { const attendance = attendanceRecords.find(item => item.date === date); return `<article class="${attendance ? '' : 'empty'}"><span>${weekDayLabels[index]} · ${date.slice(5)}</span><strong>${attendance ? `${attendance.actual} 人` : '未上传'}</strong><small>${attendance ? `计划 ${attendance.planned} 人 · ${escapeHtml(attendance.officer)}` : '等待劳资员上传打卡表'}</small></article>`; }).join('')}</div></section>
     </section>
     <div class="daily-layout">
       <div class="daily-main-stack">
-        <section class="daily-task-board"><div class="daily-section-heading"><div><strong>${currentLabel}计划跟踪</strong><small>昨日未完成已并入本清单并标注滞后天数；系统默认按计划完成的昨日任务需责任人确认，材料保障见右侧需协调事项、资料风险见下方资料风险项</small></div><span>${doneCount} / ${totalCount} 完成 · ${rate}%</span></div><div class="daily-task-columns daily-task-columns-4"><span>日计划任务与进度</span><span>班组人员</span><span>技术交底</span><span>操作</span></div>${allContexts.map(renderDailyTaskRow).join('') || '<div class="resource-empty">该日期尚未编制日进度计划，请先在“进度计划”中新增日计划。</div>'}</section>
+        <section class="daily-task-board"><div class="daily-section-heading"><div><strong>${currentLabel}计划跟踪</strong><small>昨日未完成已并入本清单并标注滞后天数；实际完成情况以例会锁定结果为准，材料保障见右侧需协调事项、资料风险见下方资料风险项</small></div><span>${doneCount} / ${totalCount} 完成 · ${rate}%</span></div><div class="daily-task-columns daily-task-columns-4"><span>日计划任务与进度</span><span>班组人员</span><span>技术交底</span><span>操作</span></div>${allContexts.map(renderDailyTaskRow).join('') || '<div class="resource-empty">该日期尚未编制日进度计划，请从侧栏“每日例会”编制次日计划。</div>'}</section>
       </div>
-      <aside class="tomorrow-coordination"><div class="daily-section-heading"><div><strong>需协调事项跟踪</strong><small>含材料保障与班组提出的协调问题；显示提出人、责任人及跟进状态</small></div><button type="button" data-new-coordination>＋ 提问题</button></div><div class="coordination-list">${coordinationItems.map(item => { const task = tasks.find(task => Number(task.id) === Number(item.taskId)); const status = item.status || 'pending'; const statusLabel = status === 'resolved' ? '已完成' : status === 'following' ? '正在跟进' : '待跟进'; if (item.material) return `<article class="material-coordination"><div><em>${escapeHtml(item.category)}</em><span class="coordination-status pending">待处理</span></div><strong>${escapeHtml(item.content)}</strong><small>${escapeHtml(item.owner)} · 要求 ${escapeHtml(item.due)} 前到场</small><button type="button" data-jump-materials>进入材料设备处理 →</button></article>`; return `<article class="${status}"><div><em>${escapeHtml(item.category)}</em><span class="coordination-status ${status}">${statusLabel}</span></div><strong>${escapeHtml(item.content)}</strong><small>关联：${escapeHtml(task?.title || '施工任务')}</small><div class="coordination-people"><span>提出：${escapeHtml(item.requester)}</span><b>责任：${escapeHtml(item.owner)}</b></div><p>最晚 ${formatIntakeTime(item.due)}${item.feedback ? ` · ${escapeHtml(item.feedback)}` : ''}</p>${status === 'resolved' ? '<button type="button" disabled>✓ 已完成</button>' : status === 'following' ? `<button type="button" data-resolve-coordination="${item.id}">标记完成</button>` : `<button type="button" data-follow-coordination="${item.id}">开始跟进</button>`}</article>`; }).join('') || '<div class="resource-empty">当前没有需协调事项</div>'}</div></aside>
+      <aside class="tomorrow-coordination"><div class="daily-section-heading"><div><strong>需协调事项跟踪</strong><small>只同步每日例会登记的现场、人员、技术、设备和工作面问题；材料、资料风险项分别在下方卡片跟踪</small></div><button type="button" data-new-coordination>＋ 提问题</button></div><div class="coordination-list">${coordinationItems.map(item => { const task = tasks.find(task => Number(task.id) === Number(item.taskId)); const status = item.status || 'pending'; const statusLabel = status === 'resolved' ? '已完成' : status === 'following' ? '正在跟进' : '待跟进'; return `<article class="${status}"><div><em>${escapeHtml(item.category)}</em><span class="coordination-status ${status}">${statusLabel}</span></div><strong>${escapeHtml(item.content)}</strong><small>关联：${escapeHtml(task?.title || '施工任务')}</small><div class="coordination-people"><span>提出：${escapeHtml(item.requester)}</span>${item.foreman ? `<span>责任工长：${escapeHtml(item.foreman)}</span>` : ''}<b>责任：${escapeHtml(item.owner)}</b></div><p>最晚 ${formatIntakeTime(item.due)}${item.feedback ? ` · ${escapeHtml(item.feedback)}` : ''}</p>${status === 'resolved' ? '<button type="button" disabled>✓ 已完成</button>' : status === 'following' ? `<button type="button" data-resolve-coordination="${item.id}">标记完成</button>` : `<button type="button" data-follow-coordination="${item.id}">开始跟进</button>`}</article>`; }).join('') || '<div class="resource-empty">当前没有需协调事项</div>'}</div></aside>
     </div>
     <section class="daily-support-grid">
       <article class="daily-support-card material"><div class="daily-support-heading"><div><span>材料风险项</span><strong>仅显示未到齐、审批未完成或临近使用的材料设备</strong></div><button type="button" data-jump-materials>进入材料设备 →</button></div><div class="daily-support-stats"><span><b>${materialRisks.length}</b> 项风险</span><span>已完成项目不在此处显示</span></div><div class="daily-material-list">${materialRisks.map(({plan,progress}) => `<div><strong>${escapeHtml(plan.name)}</strong><span>${escapeHtml(plan.location)} · 要求 ${plan.due}</span><em class="${progress.days <= 2 ? 'blocked' : 'warning'}">${escapeHtml(formatResourceQuantity(progress.arrived, progress.planned.unit))} / ${escapeHtml(plan.quantity)}</em></div>`).join('') || '<div class="resource-empty">暂无材料风险项</div>'}</div></article>
       <article class="daily-support-card documents"><div class="daily-support-heading"><div><span>资料风险项</span><strong>仅显示尚未闭环且可能影响工序的资料，并标注具体部位</strong></div><button type="button" data-jump-documents>进入资料闭环 →</button></div><ul class="daily-document-risk-list">${documentRisks.map(item => `<li><i class="${/(复试|报告|隐蔽)/.test(item.name) ? 'blocked' : 'warning'}"></i><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.group)} · ${escapeHtml(item.owner)}${item.location ? ` · ${escapeHtml(item.location)}` : ''}</small></span><b>${item.status === 'testing' ? '检测中' : '待完善'}</b></li>`).join('') || '<li class="resource-empty">暂无资料风险项</li>'}</ul></article>
       <article class="daily-support-card issues"><div class="daily-support-heading"><div><span>过程问题</span><strong>质量、安全问题跟着任务走</strong></div><button type="button" data-jump-quality>查看问题闭环 →</button></div><div class="daily-issue-totals"><div><strong>${openQuality}</strong><span>质量问题待整改</span></div><div><strong>${openSafety}</strong><span>安全问题待闭环</span></div></div><p>问题记录关联施工任务、责任班组、整改前后照片和复验结论。</p></article>
     </section>`;
+}
+
+function remindMaterialPlan(planId) {
+  const plan = resourcePlans.find(item => Number(item.id) === Number(planId));
+  if (!plan) { showToast('没有找到对应的材料计划'); return; }
+  const existing = followups.find(item => Number(item.workflowPlanId) === Number(plan.id) && item.workflowKind === 'arrival' && item.status !== 'done');
+  const owner = plan.owner || resolveOrganizationOwner(plan.ownerRole || '材料员');
+  const reminder = {
+    category: '材料催办', title: `跟进${plan.name}到场`, requester: currentOperatorLabel(), owner, recipient: owner, notificationStatus: 'unread', zone: plan.location,
+    due: `${plan.due}T18:00`, urgency: plan.due <= dailyDateKey ? 'urgent' : 'normal', relatedTask: `材料到场计划 · ${plan.name}`,
+    note: `计划数量 ${plan.quantity}，要求用于 ${plan.location}。`, status: 'pending', reminders: Number(existing?.reminders || 0) + 1,
+    workflowPlanId: Number(plan.id), workflowKind: 'arrival', lastRemindedAt: new Date().toISOString()
+  };
+  if (existing) followups = followups.map(item => item.id === existing.id ? { ...item, ...reminder } : item);
+  else followups.unshift({ id: Date.now(), ...reminder, createdAt: new Date().toISOString() });
+  persistFollowups();
+  renderSubview('intake');
+  showToast(`已向${reminder.owner}发送站内催办通知，原材料计划和附件均已保留`);
 }
 
 function openCarryoverDetail(taskId, date) {
@@ -2620,12 +3273,15 @@ function openDailyFeedbackDialog(taskId = null, dateKey = activeExecutionDate) {
 function loadDailyFeedbackTask(taskId, dateKey = dailyDateKey) {
   const task = tasks.find(item => Number(item.id) === Number(taskId));
   if (!task) return;
-  const dayPlan = plans.find(plan => plan.level === 'day' && Number(plan.taskId) === Number(task.id) && plan.start === dateKey);
+  const dayPlan = plans.find(plan => plan.level === 'day' && !plan.archived && Number(plan.taskId) === Number(task.id) && plan.start === dateKey);
   const record = getDailyExecutionRecord(task.id, dateKey, dayPlan);
   const form = $('#dailyFeedbackForm');
   form.elements.taskId.value = task.id; form.elements.taskSelect.value = String(task.id);
   form.elements.owner.value = task.owner || ''; form.elements.team.value = record.team || ''; form.elements.status.value = task.status === 'done' ? 'done' : Number(record.progress) ? 'doing' : 'todo';
-  form.elements.plannedWorkers.value = record.plannedWorkers || 0; form.elements.actualWorkers.value = record.actualWorkers || 0; form.elements.progress.value = record.progress || 0; form.elements.actualQuantity.value = record.actualQuantity || '';
+  form.elements.plannedWorkers.value = record.plannedWorkers || 0; form.elements.actualWorkers.value = record.actualWorkers || 0; form.elements.progress.value = ZhuxuMeetingRules.locked(record) ? record.actualCompletion : ''; form.elements.progress.placeholder = '待例会确认'; form.elements.actualQuantity.value = record.actualQuantity || '';
+  form.elements.progress.disabled = true;
+  form.elements.status.disabled = true;
+  form.elements.progress.title = '实际完成率仅在每日例会确认，确认后不可修改';
   form.elements.materialPercent.value = record.materialPercent || 0; form.elements.materialText.value = record.materialText || ''; form.elements.documentDone.value = record.documentDone || 0; form.elements.documentTotal.value = record.documentTotal || 1; form.elements.documentText.value = record.documentText || ''; form.elements.note.value = record.note || '';
   updateDailyDocumentCondition();
 }
@@ -2646,9 +3302,172 @@ function openCoordinationDialog(taskId = null) {
   $('#coordinationTaskSelect').innerHTML = dailyTasks.map(item => `<option value="${item.id}">${escapeHtml(item.title)}</option>`).join('');
   if (taskId) form.elements.taskId.value = String(taskId);
   const task = tasks.find(item => Number(item.id) === Number(form.elements.taskId.value)) || tasks[0];
-  form.elements.requester.value = getDailyExecutionRecord(task.id, dailyDateKey).team || currentOperatorLabel();
+  const taskContext = getDailyTaskContexts(dailyDateKey).find(item => Number(item.task.id) === Number(task?.id));
+  form.elements.requester.innerHTML = responsibilityTeamOptions(taskContext?.dayPlan?.team || getDailyExecutionRecord(task.id, dailyDateKey, taskContext?.dayPlan).team || '');
+  form.elements.requester.value = taskContext?.dayPlan?.team || getDailyExecutionRecord(task.id, dailyDateKey, taskContext?.dayPlan).team || '';
+  form.elements.foreman.innerHTML = organizationSelectOptions(matchPersonByRole('施工员'), '请选择责任工长');
+  form.elements.owner.innerHTML = organizationSelectOptions(matchPersonByRole('生产经理'), '请选择协调责任人');
   form.elements.owner.value = matchPersonByRole('生产经理'); form.elements.due.value = defaultDueValue();
   $('#coordinationDialog').showModal();
+}
+
+function meetingDateTimeValue(date) {
+  return `${date}T17:00`;
+}
+
+function renderDailyMeetingDialog() {
+  const body = $('#dailyMeetingBody');
+  if (!body) return;
+  const meetingDate = dailyMeetingDate || dailyDateKey;
+  const tomorrow = shiftDateKey(meetingDate, 1);
+  const contexts = getDailyTaskContexts(meetingDate);
+  const summary = getDailyCompletionSummary(meetingDate);
+  const pending = contexts.filter(item => ZhuxuMeetingRules.progress(item.record) < 100);
+  const todayCoordination = dailyCoordination.filter(item => item.status !== 'resolved' && String(item.due || '').startsWith(meetingDate));
+  const todayCoordinationMarkup = `<section class="daily-meeting-section"><div class="daily-meeting-section-heading"><div><strong>今日协调问题闭环</strong><small>在例会中逐项确认处理结果；未完成问题可在下方继续安排到明日。</small></div><span>${todayCoordination.length} 项待处理</span></div><div class="daily-meeting-coordination-list">${todayCoordination.map(item => `<article class="daily-meeting-coordination-review"><div><strong>${escapeHtml(item.category || '现场协调问题')}</strong><small>${escapeHtml(item.requester || '未注明班组')} · 责任人：${escapeHtml(item.owner || '待指定')} · 最晚 ${escapeHtml(item.due || '未定')}</small></div><p>${escapeHtml(item.content || '')}</p><button type="button" data-resolve-meeting-coordination="${item.id}">标记已解决</button></article>`).join('') || '<div class="daily-meeting-empty">今日没有待闭环协调问题。</div>'}</div></section>`;
+  const ownerOptions = selected => organizationSelectOptions(selected, '请选择责任人');
+  const teamOptions = selected => responsibilityTeamOptions(selected);
+  const taskOptions = selected => {
+    const options = getDailyTaskContexts(tomorrow).map(item => item.task).filter(task => !task.virtual);
+    return `<option value="">请选择关联任务</option>${options.map(task => `<option value="${task.id}" ${Number(task.id) === Number(selected) ? 'selected' : ''}>${escapeHtml(task.title)}</option>`).join('')}`;
+  };
+  body.innerHTML = `<section class="daily-meeting-summary"><div><span>例会日期</span><strong>${escapeHtml(formatDayLabel(meetingDate))}</strong><small>确认今日完成，编制 ${escapeHtml(formatDayLabel(tomorrow))} 计划</small></div><div><span>今日计划</span><strong>${summary.total}</strong><small>${summary.completed} 项完成</small></div><div><span>完成率</span><strong>${summary.rate}%</strong><small>${pending.length ? `${pending.length} 项需续做` : '今日计划已完成'}</small></div><div><span>未闭环协调</span><strong>${dailyCoordination.filter(item => item.status !== 'resolved' && String(item.due || '').startsWith(meetingDate)).length}</strong><small>例会逐项确认责任人</small></div></section><section class="daily-meeting-section"><div class="daily-meeting-section-heading"><div><strong>今日计划完成情况</strong><small>100% 表示当天计划全部完成；确认后同步今日跟踪并永久锁定，请核实后再确认。</small></div><span>${escapeHtml(meetingDate)}</span></div><div class="daily-meeting-task-list">${contexts.map((item,index) => { const draft = dailyMeetingTodayDraft[index] || { progress: Number(item.record.progress || 0) }; return `<article class="daily-meeting-task ${Number(draft.progress || 0) >= 100 ? 'done' : ''}" data-meeting-today-row="${index}"><i>${String(index + 1).padStart(2,'0')}</i><div class="daily-meeting-task-main"><strong>${escapeHtml(item.task.title)}</strong><small>${escapeHtml(item.task.owner)} · ${escapeHtml(item.record.team || item.dayPlan.team || '待安排班组')}</small><span class="daily-meeting-confirm-note">计划目标 ${Number(item.record.plannedTarget ?? item.dayPlan.dailyTarget ?? 100)}% · ${ZhuxuMeetingRules.locked(item.record) ? `已由 ${escapeHtml(item.record.meetingConfirmedBy)} 确认锁定` : '尚未确认'}</span></div><label class="daily-meeting-progress-editor"><span>实际完成率</span><input data-meeting-today-progress ${ZhuxuMeetingRules.locked(item.record) ? 'disabled' : ''} type="number" min="0" max="100" value="${Math.max(0, Math.min(100, Number(draft.progress || 0)))}"><b>%</b></label><button type="button" class="secondary-button daily-meeting-confirm-button" data-confirm-meeting-today="${index}" ${ZhuxuMeetingRules.locked(item.record) ? 'disabled' : ''}>${ZhuxuMeetingRules.locked(item.record) ? '已确认锁定' : '确认并锁定'}</button></article>`; }).join('') || '<div class="daily-meeting-empty">今日没有可统计的日计划。</div>'}</div></section><section class="daily-meeting-section"><div class="daily-meeting-section-heading"><div><strong>${escapeHtml(formatDayLabel(tomorrow))}计划</strong><small>在每日例会编制后自动同步到进度计划和第二天的每日任务执行中心。</small></div><button type="button" class="daily-meeting-add" data-add-meeting-plan>＋ 添加计划</button></div><div id="dailyMeetingPlanRows" class="daily-meeting-plan-list">${dailyMeetingPlanDraft.map((row,index) => `<div class="daily-meeting-plan-row" data-meeting-plan-row="${index}"><span>${String(index + 1).padStart(2,'0')}</span><input data-meeting-plan-title value="${escapeHtml(row.title || '')}" placeholder="施工内容"><input data-meeting-plan-target type="number" min="0" max="100" value="${Number(row.dailyTarget ?? 100)}" aria-label="计划完成百分比"><select data-meeting-plan-owner aria-label="责任人">${ownerOptions(row.owner || '')}</select><select data-meeting-plan-team aria-label="责任班组">${teamOptions(row.team || '')}</select><button type="button" data-remove-meeting-plan="${index}" aria-label="删除计划">×</button>${meetingLinkEditor(row,tomorrow,index)}</div>`).join('') || '<div class="daily-meeting-empty">暂无明日计划，请点击“添加计划”。</div>'}</div></section><section class="daily-meeting-section"><div class="daily-meeting-section-heading"><div><strong>明日需协调问题</strong><small>问题类别覆盖现场、材料、资料、人员、技术和设备；保存后自动进入明日需协调事项跟踪。</small></div><button type="button" class="daily-meeting-add" data-add-meeting-coordination>＋ 添加问题</button></div><div id="dailyMeetingCoordinationRows" class="daily-meeting-coordination-list">${dailyMeetingCoordinationDraft.map((row,index) => `<div class="daily-meeting-coordination-row" data-meeting-coordination-row="${index}"><span>${String(index + 1).padStart(2,'0')}</span><select data-meeting-coordination-task aria-label="关联明日任务">${taskOptions(row.taskId)}</select><select data-meeting-coordination-category aria-label="问题类别">${['现场协调问题','材料问题','资料问题','人员问题','图纸或技术问题','设备问题','工作面未移交','验收未完成'].map(value => `<option ${value === row.category ? 'selected' : ''}>${value}</option>`).join('')}</select><textarea data-meeting-coordination-content aria-label="需要协调的问题" placeholder="说明问题及影响">${escapeHtml(row.content || '')}</textarea><select data-meeting-coordination-requester aria-label="提出班组">${teamOptions(row.requester || '')}</select><select data-meeting-coordination-foreman aria-label="责任工长">${ownerOptions(row.foreman || matchPersonByRole('施工员'))}</select><select data-meeting-coordination-owner aria-label="协调责任人">${ownerOptions(row.owner || matchPersonByRole('生产经理'))}</select><input data-meeting-coordination-due type="datetime-local" value="${escapeHtml(row.due || meetingDateTimeValue(tomorrow))}" aria-label="最晚解决时间"><button type="button" data-remove-meeting-coordination="${index}" aria-label="删除协调问题">×</button></div>`).join('') || '<div class="daily-meeting-empty">暂无明日协调问题，请点击“添加问题”。</div>'}</div></section>`;
+  bindMeetingLinks(body,tomorrow);
+  body.insertAdjacentHTML('afterbegin', todayCoordinationMarkup);
+  $$('[data-resolve-meeting-coordination]', body).forEach(button => button.addEventListener('click', () => { dailyCoordination = dailyCoordination.map(item => Number(item.id) === Number(button.dataset.resolveMeetingCoordination) ? { ...item, status: 'resolved', resolvedAt: new Date().toISOString(), resolvedBy: currentOperatorLabel(), feedback: `例会由${currentOperatorLabel()}确认解决` } : item); dailyMeetingCoordinationDraft = dailyMeetingCoordinationDraft.filter(row => Number(row.id) !== Number(button.dataset.resolveMeetingCoordination)); persistDailyCoordination(); renderDailyMeetingDialog(); }));
+  $$('[data-meeting-today-progress]', body).forEach(input => input.addEventListener('input', event => {
+    const row = event.target.closest('[data-meeting-today-row]');
+    const index = Number(row.dataset.meetingTodayRow);
+    dailyMeetingTodayDraft[index].progress = event.target.value === '' ? null : Number(event.target.value);
+    const button = $('[data-confirm-meeting-today]', row);
+    button.disabled = false; button.textContent = '确认并锁定';
+  }));
+  $$('[data-confirm-meeting-today]', body).forEach(button => button.addEventListener('click', async () => {
+    button.disabled = true;
+    if (!await saveDailyMeetingTaskCompletion(meetingDate, Number(button.dataset.confirmMeetingToday))) { button.disabled = false; return; }
+    button.textContent = '已确认锁定'; button.disabled = true;
+    const confirmedItem = getDailyTaskContexts(meetingDate)[Number(button.dataset.confirmMeetingToday)];
+    $('.daily-meeting-confirm-note', button.closest('[data-meeting-today-row]')).textContent = `计划目标 ${confirmedItem.record.plannedTarget}% · 已由 ${confirmedItem.record.meetingConfirmedBy} 确认锁定`;
+    $('[data-meeting-today-progress]', button.closest('[data-meeting-today-row]')).disabled = true;
+    const summary = getDailyCompletionSummary(meetingDate);
+    const cells = $$('.daily-meeting-summary > div', body);
+    $('small', cells[1]).textContent = `${summary.completed} 项完成`;
+    $('strong', cells[2]).textContent = `${summary.rate}%`;
+    $('small', cells[2]).textContent = summary.total > summary.completed ? `${summary.total - summary.completed} 项需续做` : '今日计划已完成';
+    button.closest('[data-meeting-today-row]').classList.toggle('done', dailyMeetingTodayDraft[Number(button.dataset.confirmMeetingToday)].progress >= 100);
+    renderDailyMeetingDialog();
+  }));
+  $$('[data-meeting-plan-title]', body).forEach(input => input.addEventListener('input', event => { dailyMeetingPlanDraft[Number(event.target.closest('[data-meeting-plan-row]').dataset.meetingPlanRow)].title = event.target.value; }));
+  $$('[data-meeting-plan-target]', body).forEach(input => input.addEventListener('input', event => { dailyMeetingPlanDraft[Number(event.target.closest('[data-meeting-plan-row]').dataset.meetingPlanRow)].dailyTarget = Math.max(0, Math.min(100, Number(event.target.value || 0))); }));
+  $$('[data-meeting-plan-owner]', body).forEach(input => input.addEventListener('change', event => { dailyMeetingPlanDraft[Number(event.target.closest('[data-meeting-plan-row]').dataset.meetingPlanRow)].owner = event.target.value; }));
+  $$('[data-meeting-plan-team]', body).forEach(input => input.addEventListener('change', event => { dailyMeetingPlanDraft[Number(event.target.closest('[data-meeting-plan-row]').dataset.meetingPlanRow)].team = event.target.value; }));
+  $$('[data-remove-meeting-plan]', body).forEach(button => button.addEventListener('click', () => { dailyMeetingPlanDraft.splice(Number(button.dataset.removeMeetingPlan), 1); renderDailyMeetingDialog(); }));
+  $$('[data-meeting-coordination-task]', body).forEach(input => input.addEventListener('change', event => { dailyMeetingCoordinationDraft[Number(event.target.closest('[data-meeting-coordination-row]').dataset.meetingCoordinationRow)].taskId = Number(event.target.value) || null; }));
+  $$('[data-meeting-coordination-category]', body).forEach(input => input.addEventListener('change', event => { dailyMeetingCoordinationDraft[Number(event.target.closest('[data-meeting-coordination-row]').dataset.meetingCoordinationRow)].category = event.target.value; }));
+  $$('[data-meeting-coordination-content]', body).forEach(input => input.addEventListener('input', event => { dailyMeetingCoordinationDraft[Number(event.target.closest('[data-meeting-coordination-row]').dataset.meetingCoordinationRow)].content = event.target.value; }));
+  $$('[data-meeting-coordination-requester]', body).forEach(input => input.addEventListener('change', event => { dailyMeetingCoordinationDraft[Number(event.target.closest('[data-meeting-coordination-row]').dataset.meetingCoordinationRow)].requester = event.target.value; }));
+  $$('[data-meeting-coordination-foreman]', body).forEach(input => input.addEventListener('change', event => { dailyMeetingCoordinationDraft[Number(event.target.closest('[data-meeting-coordination-row]').dataset.meetingCoordinationRow)].foreman = event.target.value; }));
+  $$('[data-meeting-coordination-owner]', body).forEach(input => input.addEventListener('change', event => { dailyMeetingCoordinationDraft[Number(event.target.closest('[data-meeting-coordination-row]').dataset.meetingCoordinationRow)].owner = event.target.value; }));
+  $$('[data-meeting-coordination-due]', body).forEach(input => input.addEventListener('change', event => { dailyMeetingCoordinationDraft[Number(event.target.closest('[data-meeting-coordination-row]').dataset.meetingCoordinationRow)].due = event.target.value; }));
+  $$('[data-remove-meeting-coordination]', body).forEach(button => button.addEventListener('click', () => { dailyMeetingCoordinationDraft.splice(Number(button.dataset.removeMeetingCoordination), 1); renderDailyMeetingDialog(); }));
+  $('[data-add-meeting-plan]', body)?.addEventListener('click', () => { dailyMeetingPlanDraft.push({ id: null, title: '', dailyTarget: 100, owner: '', team: '' }); renderDailyMeetingDialog(); });
+  $('[data-add-meeting-coordination]', body)?.addEventListener('click', () => { dailyMeetingCoordinationDraft.push({ taskId: null, category: '现场协调问题', content: '', requester: '', foreman: matchPersonByRole('施工员'), owner: matchPersonByRole('生产经理'), due: meetingDateTimeValue(tomorrow) }); renderDailyMeetingDialog(); });
+}
+
+function openDailyMeetingDialog(date = dailyDateKey) {
+  dailyMeetingDate = date || dailyDateKey;
+  $('#dailyMeetingDateInput').value = dailyMeetingDate;
+  const tomorrow = shiftDateKey(dailyMeetingDate, 1);
+  const todayContexts = getDailyTaskContexts(dailyMeetingDate);
+  dailyMeetingTodayDraft = todayContexts.map(item => ({ taskId: item.task.id, progress: item.record.autoGenerated ? 0 : Number(item.record.actualCompletion ?? item.record.progress ?? 0), actualQuantity: item.record.actualQuantity || '', note: item.record.note || '' }));
+  const tomorrowPlans = plans.filter(plan => plan.level === 'day' && !plan.archived && plan.start === tomorrow).sort((a, b) => Number(a.id) - Number(b.id));
+  const carryover = getDailyTaskContexts(dailyMeetingDate).filter(item => ZhuxuMeetingRules.progress(item.record) < 100);
+  dailyMeetingPlanDraft = (tomorrowPlans.length ? tomorrowPlans : carryover.map(item => ({ id: null, title: item.task.title, dailyTarget: 100, owner: item.task.owner, team: item.record.team || item.dayPlan.team || '', scheduleLink: ZhuxuScheduleRules.carry(item.dayPlan,item.record), parentId: item.dayPlan.parentId, carriedFromId: item.dayPlan.id }))).map(plan => ({ id: plan.id || null, title: plan.title || '', dailyTarget: plan.dailyTarget ?? 100, owner: Array.isArray(plan.owners) ? plan.owners[0] : (plan.owners || plan.owner || ''), team: plan.team || '', parentId: plan.parentId || null, scheduleLink: plan.scheduleLink ? structuredClone(plan.scheduleLink) : null, carriedFromId: plan.carriedFromId || null }));
+  const tomorrowCoordination = dailyCoordination.filter(item => String(item.due || '').startsWith(tomorrow));
+  const carryCoordination = dailyCoordination.filter(item => item.status !== 'resolved' && String(item.due || '').startsWith(dailyMeetingDate));
+  dailyMeetingCoordinationDraft = [...tomorrowCoordination, ...carryCoordination.filter(item => !tomorrowCoordination.some(existing => Number(existing.id) === Number(item.id)))].map(item => ({ id: item.id, taskId: item.taskId, category: item.category || '现场协调问题', content: item.content || '', requester: item.requester || '', foreman: item.foreman || matchPersonByRole('施工员'), owner: item.owner || matchPersonByRole('生产经理'), due: tomorrowCoordination.includes(item) ? (item.due || meetingDateTimeValue(tomorrow)) : meetingDateTimeValue(tomorrow) }));
+  renderDailyMeetingDialog();
+  const dialog = $('#dailyMeetingDialog');
+  $$('dialog[open]').forEach(item => { if (item !== dialog) item.close(); });
+  dialog.showModal();
+}
+
+async function saveDailyMeetingTaskCompletion(date, index) {
+  const contexts = getDailyTaskContexts(date);
+  const draft = dailyMeetingTodayDraft[index];
+  const item = contexts.find(context => Number(context.task.id) === Number(draft?.taskId));
+  if (!item || !draft) return false;
+  if (draft.progress === null || !Number.isFinite(draft.progress) || draft.progress < 0 || draft.progress > 100) { showToast('请输入 0 到 100 之间的完成百分比'); return false; }
+  const confirmedAt = new Date().toISOString();
+  const record = getDailyExecutionRecord(item.task.id, date, item.dayPlan);
+  let next;
+  try {
+    ZhuxuScheduleRules.validateDay(item.dayPlan, plans);
+    next = ZhuxuMeetingRules.confirm(record, item.dayPlan, draft.progress, currentOperatorLabel(), confirmedAt);
+    if (window.ZhuxuServer?.active) {
+      const response = await window.ZhuxuServer.request('/api/daily-execution/confirm', { method: 'POST', body: JSON.stringify({ taskId: item.task.id, dayPlanId: item.dayPlan.id, date, actualCompletion: draft.progress }) });
+      next = { ...record, ...response.record };
+    }
+  } catch (error) { showToast(error.message || '确认未成功，请重试'); return false; }
+  const recordIndex = dailyExecution.findIndex(existing => Number(existing.taskId) === Number(item.task.id) && existing.date === date);
+  const updatedExecution = dailyExecution.slice();
+  if (recordIndex >= 0) updatedExecution[recordIndex] = next;
+  else updatedExecution.push(next);
+  try { localStorage.setItem('zhuxu-daily-execution', JSON.stringify(updatedExecution)); }
+  catch (error) {
+    if (!window.ZhuxuServer?.active) { showToast('本机存储不足，完成率未确认，请释放空间后重试'); return false; }
+    showToast('服务端已确认锁定，本机缓存失败；请刷新重新读取');
+  }
+  dailyExecution = updatedExecution;
+  dailyMeetingPlanDraft = dailyMeetingPlanDraft.filter(row => row.id || Number(row.carriedFromId) !== Number(item.dayPlan.id) || next.actualCompletion < 100).map(row => !row.id && Number(row.carriedFromId) === Number(item.dayPlan.id) ? { ...row, scheduleLink: ZhuxuScheduleRules.carry(item.dayPlan,next) } : row);
+  if (!item.task.virtual && date === dailyDateKey) tasks = tasks.map(task => Number(task.id) === Number(item.task.id) ? { ...task, status: next.progress >= 100 ? 'done' : next.progress > 0 ? 'doing' : 'todo' } : task);
+  try { persistTasks(); } catch (error) { /* Completion remains durably confirmed even if a secondary task cache is full. */ }
+  if ($('#intake').classList.contains('active')) renderSubview('intake');
+  showToast(`${item.task.title}实际完成率已确认锁定并同步到今日任务跟踪`);
+  return true;
+}
+
+function syncDailyPlansFromMeeting(date, rows) {
+  rows.forEach(row => ZhuxuScheduleRules.validateDay({ ...row, level: 'day', parentId: row.scheduleLink?.weekId ?? row.parentId, start: date, end: date }, plans));
+  const normalized = rows.map(row => ({ ...row, title: String(row.title || '').trim(), dailyTarget: Math.max(0, Math.min(100, Number(row.dailyTarget ?? 100))), owner: String(row.owner || '').trim(), team: String(row.team || '').trim() })).filter(row => row.title);
+  const existing = plans.filter(plan => plan.level === 'day' && !plan.archived && plan.start === date);
+  const matched = new Set();
+  normalized.forEach(row => { const plan = row.id ? existing.find(item => Number(item.id) === Number(row.id)) : null; if (plan) matched.add(Number(plan.id)); });
+  const existingIds = new Set(existing.map(plan => Number(plan.id)));
+  const preservedWithFiles = existing.filter(plan => !matched.has(Number(plan.id)) && (plan.attachments || []).length).map(plan => {
+    const planTaskIds = tasks.filter(task => Number(task.dayPlanId) === Number(plan.id)).map(task => Number(task.id));
+    tasks = tasks.filter(task => !planTaskIds.includes(Number(task.id)));
+    dailyExecution = dailyExecution.filter(record => !planTaskIds.includes(Number(record.taskId)) && Number(record.dayPlanId) !== Number(plan.id));
+    return { ...plan, archived: true, archivedAt: new Date().toISOString(), archivedReason: '每日例会调整计划，保留原上传文件' };
+  });
+  existing.filter(plan => !matched.has(Number(plan.id)) && !(plan.attachments || []).length).forEach(plan => removeDailyPlanById(plan.id));
+  const seed = Date.now(); const taskIdMap = new Map(); const newPlans = [];
+  normalized.forEach((row, index) => {
+    const previous = row.id ? existing.find(item => Number(item.id) === Number(row.id)) : null;
+    const planId = previous?.id || seed + index + 1;
+    const oldTasks = tasks.filter(task => Number(task.dayPlanId) === Number(planId));
+    const oldTaskIds = oldTasks.map(task => Number(task.id));
+    const taskId = oldTasks[0]?.id || seed + 1000 + index;
+    oldTaskIds.forEach(oldId => taskIdMap.set(oldId, taskId));
+    const owner = row.owner || previous?.owners?.[0] || planOwners(previous || {}).at(0) || resolveOrganizationOwner('施工管理人员');
+    const team = row.team || previous?.team || '';
+    const task = { ...(oldTasks[0] || {}), id: taskId, dayPlanId: planId, title: row.title, zone: oldTasks[0]?.zone || previous?.zone || '计划指定区域', owner, team, creator: oldTasks[0]?.creator || currentOperatorLabel(), taskType: '施工任务', time: oldTasks[0]?.time || '17:00', status: oldTasks[0]?.status || 'todo', priority: oldTasks[0]?.priority || 'normal', criteria: `来源：每日例会 · ${date}` };
+    tasks = tasks.filter(item => !oldTaskIds.includes(Number(item.id)));
+    tasks.unshift(task);
+    dailyExecution = dailyExecution.map(record => oldTaskIds.includes(Number(record.taskId)) ? { ...record, taskId, dayPlanId: planId } : record);
+    const updatedPlan = { ...(previous || {}), id: planId, level: 'day', title: row.title, owners: owner ? [owner] : [], ownerRole: owner.split('·').slice(-1)[0]?.trim() || '施工管理人员', team, dailyTarget: row.dailyTarget, start: date, end: date, parentId: row.scheduleLink?.weekId ?? row.parentId ?? null, scheduleLink: row.scheduleLink || null, carriedFromId: row.carriedFromId || null, taskId, taskIds: [taskId], subTasks: [], source: '每日例会', updatedAt: new Date().toISOString() };
+    newPlans.push(updatedPlan); getDailyExecutionRecord(taskId, date, updatedPlan);
+  });
+  plans = plans.filter(plan => !(existingIds.has(Number(plan.id)))) .concat(preservedWithFiles, newPlans);
+  return { taskIdMap, plans: newPlans };
+}
+
+function syncDailyCoordinationFromMeeting(date, rows, taskIdMap) {
+  dailyCoordination = dailyCoordination.filter(item => !(item.source === 'daily-meeting' && String(item.due || '').startsWith(date)));
+  rows.map(row => ({ ...row, content: String(row.content || '').trim() })).filter(row => row.content && !['材料问题', '资料问题'].includes(row.category)).forEach((row, index) => {
+    const taskId = taskIdMap.get(Number(row.taskId)) || Number(row.taskId) || null;
+    dailyCoordination.unshift({ id: Date.now() + index, taskId, category: row.category || '现场协调问题', content: row.content, requester: row.requester || '未注明班组', foreman: row.foreman || matchPersonByRole('施工员'), owner: row.owner || matchPersonByRole('生产经理'), due: row.due || meetingDateTimeValue(date), status: 'pending', source: 'daily-meeting', meetingDate: dailyMeetingDate, createdAt: new Date().toISOString(), createdBy: currentOperatorLabel() });
+  });
 }
 
 function openWorkersDetail(taskId) {
@@ -2668,7 +3487,7 @@ function openTechnicalNotice(taskId) {
   const record = getDailyExecutionRecord(taskId); const notice = record.technicalNotice;
   const task = tasks.find(item => Number(item.id) === Number(taskId));
   $('#technicalNoticeTaskId').value = taskId;
-  $('#addTechnicalNotice').onclick = () => { $('#technicalNoticeDialog').close(); openTechnicalDocumentDialog('change'); };
+  $('#addTechnicalNotice').onclick = () => { $('#technicalNoticeDialog').close(); openTechnicalDocumentDialog('change'); linkingTechnicalTaskId = Number(taskId); linkingTechnicalTaskDate = activeExecutionDate; };
   if (!notice) {
     $('#technicalNoticeTitle').textContent = '常规施工 · 技术交底';
     $('#technicalNoticeBody').innerHTML = `<div class="technical-notice-mark"><span>技术交底</span><strong>无新增变更或指令</strong></div><h3>${escapeHtml(task?.title || '施工任务')}</h3><p>该任务当前没有设计变更或施工指令，按原施工方案和技术交底执行；如需补充交底要求，请在“技术文件”中登记。</p><dl><div><dt>关联任务</dt><dd>${escapeHtml(task?.title || '')}</dd></div><div><dt>责任班组</dt><dd>${escapeHtml(record.team || '待安排')}</dd></div><div><dt>当前状态</dt><dd>常规施工</dd></div></dl>`;
@@ -2679,7 +3498,7 @@ function openTechnicalNotice(taskId) {
   }
   $('#technicalNoticeTitle').textContent = `${notice.type} · ${notice.code}`;
   const sourceDocument = technicalDocuments.find(item => item.code === notice.code || Number(item.id) === Number(notice.documentId));
-  $('#technicalNoticeBody').innerHTML = `<div class="technical-notice-risk"><b>!</b><span>技术风险提示</span><strong>未完成交底确认前，请勿按原做法继续施工</strong></div><div class="technical-notice-mark"><span>${escapeHtml(notice.type)}</span><strong>${escapeHtml(notice.code)}</strong></div><h3>${escapeHtml(notice.title)}</h3><p>${escapeHtml(sourceDocument?.content || notice.detail)}</p><dl><div><dt>关联任务</dt><dd>${escapeHtml(task?.title || '')}</dd></div><div><dt>发布人</dt><dd>${escapeHtml(notice.issuedBy)}</dd></div><div><dt>发布时间</dt><dd>${formatIntakeTime(notice.issuedAt)}</dd></div><div><dt>需要确认</dt><dd>${notice.requiredRoles.map(escapeHtml).join('、')}</dd></div></dl>${sourceDocument ? `<section class="notice-source-document"><div><strong>上传的${escapeHtml(technicalTypeLabels[sourceDocument.type] || '技术文件')}</strong><p>${escapeHtml(sourceDocument.scope)} · ${(sourceDocument.files || []).length} 个附件</p></div>${(sourceDocument.files || []).map((file,index) => `<button type="button" data-notice-source-file="${index}">${escapeHtml(file.name)} <span>查看原文件 →</span></button>`).join('')}<button type="button" data-open-technical-document="${sourceDocument.id}">查看技术文件台账详情</button></section>` : ''}<section><strong>确认记录</strong><p>${notice.acknowledgedBy.length ? notice.acknowledgedBy.map(escapeHtml).join('、') : '尚无人确认'}</p></section>`;
+  $('#technicalNoticeBody').innerHTML = `<div class="technical-notice-risk"><b>!</b><span>技术风险提示</span><strong>未完成交底确认前，请勿按原做法继续施工</strong></div><div class="technical-notice-mark"><span>${escapeHtml(notice.type)}</span><strong>${escapeHtml(notice.code)}</strong></div><h3>${escapeHtml(notice.title)}</h3><p class="technical-notice-important"><b>!</b><span>${escapeHtml(sourceDocument?.content || notice.detail)}</span></p><dl><div><dt>关联任务</dt><dd>${escapeHtml(task?.title || '')}</dd></div><div><dt>发布人</dt><dd>${escapeHtml(notice.issuedBy)}</dd></div><div><dt>发布时间</dt><dd>${formatIntakeTime(notice.issuedAt)}</dd></div><div><dt>需要确认</dt><dd>${notice.requiredRoles.map(escapeHtml).join('、')}</dd></div></dl>${sourceDocument ? `<section class="notice-source-document"><div><strong>上传的${escapeHtml(technicalTypeLabels[sourceDocument.type] || '技术文件')}</strong><p>${escapeHtml(sourceDocument.scope)} · ${(sourceDocument.files || []).length} 个附件</p></div>${(sourceDocument.files || []).map((file,index) => `<button type="button" data-notice-source-file="${index}">${escapeHtml(file.name)} <span>查看原文件 →</span></button>`).join('')}<button type="button" data-open-technical-document="${sourceDocument.id}">查看技术文件台账详情</button></section>` : ''}<section><strong>确认记录</strong><p>${notice.acknowledgedBy.length ? notice.acknowledgedBy.map(escapeHtml).join('、') : '尚无人确认'}</p></section>`;
   $$('[data-notice-source-file]', $('#technicalNoticeBody')).forEach(button => button.addEventListener('click', () => previewStoredAttachment((sourceDocument.files || [])[Number(button.dataset.noticeSourceFile)])));
   $('[data-open-technical-document]', $('#technicalNoticeBody'))?.addEventListener('click', () => { $('#technicalNoticeDialog').close(); navigate('technical'); setTimeout(() => openTechnicalDocumentDetail(sourceDocument.id), 0); });
   const operator = currentOperatorLabel();
@@ -2745,7 +3564,7 @@ function distributeIntakeRecord(record, candidates) {
     const due = new Date(Date.now() + 7 * 86400000).toISOString().slice(0,10);
     titles.forEach((title, index) => {
       const requester = record.reviewer || currentOperatorLabel();
-      const item = { id: now + index, type: 'material', name: title, quantity: '待核实', due, location: record.zone, ownerRole: '材料员', requester, purchaser: matchPersonByRole('采购员'), contractBrandRequired: false, contractBrand: '', approvalAttachments: record.attachments || [], approvalWorkflow: [{ role: '提报人', owner: requester, status: 'pending' }, { role: '生产经理', owner: matchPersonByRole('生产经理'), status: 'pending' }, { role: '技术负责人', owner: matchPersonByRole('技术负责人'), status: 'pending' }, { role: '库管', owner: matchPersonByRole('库管'), status: 'pending' }, { role: '项目经理', owner: matchPersonByRole('项目经理'), status: 'pending' }], createdAt: new Date().toISOString(), sourceIntakeId: record.id };
+      const item = { id: now + index, type: 'material', name: title, quantity: '待核实', due, location: record.zone, ownerRole: '材料员', requester, purchaser: matchPersonByRole('采购员'), contractBrandRequired: false, contractBrand: '', approvalAttachments: record.attachments || [], approvalWorkflow: [{ role: '提报人', owner: requester, status: 'approved', actedAt: new Date().toISOString(), actedBy: requester }, { role: '生产经理', owner: matchPersonByRole('生产经理'), status: 'pending' }, { role: '技术负责人', owner: matchPersonByRole('技术负责人'), status: 'pending' }, { role: '库管', owner: matchPersonByRole('库管'), status: 'pending' }, { role: '项目经理', owner: matchPersonByRole('项目经理'), status: 'pending' }], createdAt: new Date().toISOString(), sourceIntakeId: record.id };
       resourcePlans.unshift(item); syncMaterialApprovalNotifications(item); refs.push({ kind: 'material', id: item.id, title });
     });
     persistResources(); persistFollowups();
@@ -2766,6 +3585,7 @@ function distributeIntakeRecord(record, candidates) {
 }
 
 function renderSubview(id) {
+  renderCurrentUser();
   const config = subviews[id];
   const container = document.getElementById(id);
   let body = '';
@@ -2803,13 +3623,16 @@ function renderSubview(id) {
     }[config.content];
     body = `<div class="card-collection">${cards.map(c=>`<article class="info-card"><h3>${c[0]}</h3><div class="big">${c[1]}</div><p>${c[2]}</p><div class="mini-bar"><i style="width:${c[3]}%"></i></div></article>`).join('')}</div>`;
   }
-  const undoButton = id === 'schedule' && planUndoStack.length ? '<button type="button" class="secondary-button undo-plan-button" data-undo-plan>撤销上次计划</button>' : '';
-  container.innerHTML = `<div class="subview-shell"><div class="subview-heading"><div><p class="eyebrow">${escapeHtml(currentProject.name)}</p><h1 id="${id}Title">${config.title}</h1><p>${config.desc}</p></div><div class="subview-heading-actions">${undoButton}<button class="primary-button subview-action">＋ ${config.action}</button></div></div>${body}</div>`;
-  $('.subview-action', container).addEventListener('click', () => {
+  const showAction = id !== 'intake' && id !== 'schedule';
+  const actionLabel = id === 'schedule' ? (activePlanLevel === 'day' ? '每日例会' : '新建计划') : config.action;
+  const meetingAction = '';
+  container.innerHTML = `<div class="subview-shell"><div class="subview-heading"><div><p class="eyebrow">${escapeHtml(currentProject.name)}</p><h1 id="${id}Title">${config.title}</h1><p>${config.desc}</p></div><div class="subview-heading-actions">${meetingAction}${showAction ? `<button class="primary-button subview-action">＋ ${actionLabel}</button>` : ''}</div></div>${body}</div>`;
+  if (id === 'schedule') hydratePlanFilePreviews(container);
+  if (id === 'schedule') bindScheduleGoals(container);
+  $('.subview-action', container)?.addEventListener('click', () => {
     if (id === 'intake') openDailyFeedbackDialog(null, dailyDateKey);
     else if (id === 'technical') openTechnicalDocumentDialog();
     else if (id === 'cost') openCostDocumentDialog();
-    else if (id === 'schedule') openPlanDialog();
     else if (id === 'tasks') openTaskDialog();
     else if (id === 'followups') openFollowupDialog();
     else if (id === 'materials') openResourceEntryDialog(activeResourceTab === 'equipment' ? 'equipment' : 'material');
@@ -2820,12 +3643,29 @@ function renderSubview(id) {
     else showToast(`${config.action}功能已进入待办，可在下一版接入业务数据`);
   });
   $$('[data-plan-level]', container).forEach(button => button.addEventListener('click', () => { activePlanLevel = button.dataset.planLevel; renderSubview('schedule'); }));
+  $$('[data-compose-plan-level]', container).forEach(button => button.addEventListener('click', () => openPlanDialog(null, { level: button.dataset.composePlanLevel, start: button.dataset.composeStart, end: button.dataset.composeEnd })));
+  $$('[data-schedule-month-select]', container).forEach(button => button.addEventListener('click', () => { activeScheduleMonth = Number(button.dataset.scheduleMonthSelect); renderSubview('schedule'); }));
+  $('[data-upload-master-plan]', container)?.addEventListener('click', () => $('#masterPlanFileInput').click());
+  $$('[data-upload-period-plan]', container).forEach(button => button.addEventListener('click', () => {
+    pendingPeriodPlanUpload = { level: button.dataset.periodLevel, start: button.dataset.periodStart, end: button.dataset.periodEnd, title: button.dataset.periodTitle };
+    $('#periodPlanFileInput').click();
+  }));
+  $$('[data-period-details]', container).forEach(details => details.addEventListener('toggle', () => {
+    if (!details.open) return;
+    $$('[data-period-details]', container).forEach(other => { if (other !== details) other.open = false; });
+    requestAnimationFrame(() => details.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }));
+  $('[data-open-master-file]', container)?.addEventListener('click', () => { const file = plans.find(plan => plan.level === 'master')?.attachments?.[0]; if (file) previewStoredAttachment(file); });
   $$('[data-technical-filter]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalFilter = activeTechnicalFilter === button.dataset.technicalFilter ? 'all' : button.dataset.technicalFilter; activeTechnicalBuilding = 'all'; activeTechnicalProfession = 'all'; renderSubview('technical'); }));
   $$('[data-technical-overview-filter]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalFilter = activeTechnicalFilter === button.dataset.technicalOverviewFilter ? 'all' : button.dataset.technicalOverviewFilter; activeTechnicalBuilding = 'all'; activeTechnicalProfession = 'all'; renderSubview('technical'); }));
   $$('[data-technical-building]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalBuilding = button.dataset.technicalBuilding; activeTechnicalProfession = 'all'; renderSubview('technical'); }));
-  $$('[data-technical-profession]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalProfession = button.dataset.technicalProfession; renderSubview('technical'); }));
+  $$('[data-technical-profession]', container).forEach(button => button.addEventListener('click', () => { activeTechnicalProfession = activeTechnicalProfession === button.dataset.technicalProfession ? 'all' : button.dataset.technicalProfession; renderSubview('technical'); }));
+  $('[data-technical-search-submit]', container)?.addEventListener('click', () => { activeTechnicalSearch = String($('#technicalSearchInput', container)?.value || '').trim(); renderSubview('technical'); });
+  $('[data-technical-search-clear]', container)?.addEventListener('click', () => { activeTechnicalSearch = ''; renderSubview('technical'); });
+  $('#technicalSearchInput', container)?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); activeTechnicalSearch = event.currentTarget.value.trim(); renderSubview('technical'); } });
   $('[data-new-drawing-building]', container)?.addEventListener('click', () => { $('#drawingNewBuildingError').textContent = ''; $('#drawingNewBuildingForm').reset(); $('#drawingNewBuildingDialog').showModal(); });
   $$('[data-technical-document]', container).forEach(button => button.addEventListener('click', () => openTechnicalDocumentDetail(button.dataset.technicalDocument)));
+  $$('[data-open-drawing]', container).forEach(button => button.addEventListener('click', () => openTechnicalDrawing(button.dataset.openDrawing)));
   $$('[data-cost-filter]', container).forEach(button => button.addEventListener('click', () => { activeCostFilter = button.dataset.costFilter; renderSubview('cost'); }));
   $$('[data-cost-overview-filter]', container).forEach(button => button.addEventListener('click', () => { activeCostFilter = button.dataset.costOverviewFilter; renderSubview('cost'); }));
   $$('[data-cost-document]', container).forEach(button => button.addEventListener('click', () => openCostDocumentDetail(button.dataset.costDocument)));
@@ -2841,19 +3681,19 @@ function renderSubview(id) {
   $('[data-new-coordination]', container)?.addEventListener('click', () => openCoordinationDialog());
   $$('[data-follow-coordination]', container).forEach(button => button.addEventListener('click', () => { dailyCoordination = dailyCoordination.map(item => Number(item.id) === Number(button.dataset.followCoordination) ? { ...item, status: 'following', followedAt: new Date().toISOString(), followedBy: currentOperatorLabel(), feedback: `由${currentOperatorLabel()}开始跟进` } : item); persistDailyCoordination(); renderSubview('intake'); showToast('协调事项已进入跟进状态'); }));
   $$('[data-resolve-coordination]', container).forEach(button => button.addEventListener('click', () => { dailyCoordination = dailyCoordination.map(item => Number(item.id) === Number(button.dataset.resolveCoordination) ? { ...item, status: 'resolved', resolvedAt: new Date().toISOString(), resolvedBy: currentOperatorLabel(), feedback: `已由${currentOperatorLabel()}确认完成` } : item); persistDailyCoordination(); renderSubview('intake'); showToast('协调问题已完成并保留闭环记录'); }));
+  $$('[data-edit-material-plan]', container).forEach(button => button.addEventListener('click', () => { const plan = resourcePlans.find(item => Number(item.id) === Number(button.dataset.editMaterialPlan)); if (plan) openResourcePlanDialog(plan); else showToast('没有找到对应的材料计划'); }));
+  $$('[data-remind-material-plan]', container).forEach(button => button.addEventListener('click', () => remindMaterialPlan(button.dataset.remindMaterialPlan)));
   $('[data-jump-materials]', container)?.addEventListener('click', () => navigate('materials'));
   $('[data-jump-documents]', container)?.addEventListener('click', () => navigate('documents'));
   $('[data-jump-quality]', container)?.addEventListener('click', () => navigate('quality'));
   $('[data-open-collection]', container)?.addEventListener('click', openIntakeDialog);
   $$('[data-edit-plan]', container).forEach(button => button.addEventListener('click', () => openPlanDialog(plans.find(plan => plan.id === Number(button.dataset.editPlan)))));
   $$('[data-plan-attachment]', container).forEach(button => button.addEventListener('click', () => { const plan = plans.find(item => Number(item.id) === Number(button.dataset.planAttachment)); const file = plan?.attachments?.[0]; if (file) previewStoredAttachment(file); }));
-  $('[data-undo-plan]', container)?.addEventListener('click', () => {
-    const previous = planUndoStack.pop();
-    if (!previous) { showToast('没有可撤销的计划操作'); return; }
-    plans = previous; persistPlans(); renderSubview('schedule'); showToast('已撤销上一次计划操作');
-  });
-  $('[data-weather-refresh]', container)?.addEventListener('click', () => { refreshWeatherTable(); showToast('正在刷新晴雨表'); });
-  $('[data-weather-setting]', container)?.addEventListener('click', openWeatherSetting);
+  $$('[data-plan-canvas]', container).forEach(canvas => canvas.addEventListener('click', event => {
+    if (event.target.closest('button,iframe')) return;
+    const plan = plans.find(item => Number(item.id) === Number(canvas.dataset.planCanvas));
+    if (plan?.attachments?.[0]) previewStoredAttachment(plan.attachments[0]);
+  }));
   $$('[data-edit-task-row]', container).forEach(button => button.addEventListener('click', () => openTaskDialog(tasks.find(task => task.id === Number(button.dataset.editTaskRow)))));
   $$('[data-resource-tab]', container).forEach(button => button.addEventListener('click', () => { activeResourceTab = button.dataset.resourceTab; renderSubview('materials'); }));
   $('[data-new-resource-plan]', container)?.addEventListener('click', () => openResourcePlanDialog());
@@ -2884,8 +3724,8 @@ function renderSubview(id) {
   $('[data-new-account]', container)?.addEventListener('click', () => openAccountDialog());
   if (id === 'team') loadAccounts();
   $$('[data-remind-followup]', container).forEach(button => button.addEventListener('click', () => {
-    followups = followups.map(item => item.id === Number(button.dataset.remindFollowup) ? { ...item, reminders: item.reminders + 1, lastRemindedAt: new Date().toISOString() } : item);
-    persistFollowups(); renderSubview('followups'); showToast('已再次提醒责任人，并记录本次催办');
+    followups = followups.map(item => item.id === Number(button.dataset.remindFollowup) ? { ...item, reminders: Number(item.reminders || 0) + 1, lastRemindedAt: new Date().toISOString() } : item);
+    persistFollowups(); renderSubview($('#intake').classList.contains('active') ? 'intake' : 'followups'); showToast('已再次提醒责任人，并记录本次催办');
   }));
   if (id === 'schedule') refreshWeatherTable();
 }
@@ -2897,7 +3737,6 @@ function navigate(viewId) {
   $$('.view').forEach(view => view.classList.toggle('active', view.id === viewId));
   $$('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === viewId));
   $('#globalBackButton').classList.toggle('visible', viewId !== 'intake');
-  $('#addTaskButton').classList.toggle('view-hidden', viewId !== 'intake');
   renderSubview(viewId);
   closeSidebar();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3250,22 +4089,30 @@ function initializeApp() {
     } finally { submit.disabled = false; submit.textContent = '确认'; }
   });
 
-  $$('.nav-item').forEach(item => item.addEventListener('click', () => navigate(item.dataset.view)));
+  $$('.nav-item[data-view]').forEach(item => item.addEventListener('click', () => navigate(item.dataset.view)));
+  $$('[data-daily-meeting]').forEach(button => button.addEventListener('click', () => openDailyMeetingDialog(activeExecutionDate || dailyDateKey)));
+  $('#dailyMeetingDateInput').addEventListener('change', event => { if (event.target.value) openDailyMeetingDialog(event.target.value); });
   $$('[data-jump]').forEach(item => item.addEventListener('click', () => navigate(item.dataset.jump)));
   $$('.task-filters button').forEach(button => button.addEventListener('click', () => { activeFilter = button.dataset.filter; $$('.task-filters button').forEach(b => b.classList.toggle('active', b === button)); renderTasks(); }));
   $('#menuButton').addEventListener('click', openSidebar); $('#sidebarScrim').addEventListener('click', closeSidebar);
   $('#globalBackButton').addEventListener('click', () => navigate('intake'));
   $('#documentStrip').addEventListener('click', () => navigate('documents'));
   $('#organizationButton').addEventListener('click', () => { renderOrganization(); $('#organizationDialog').showModal(); });
+  $('#currentUserCard').addEventListener('click', event => {
+    if (!event.target.closest('#accountSwitcherButton')) openCurrentUserDialog();
+  });
+  $('#currentUserCard').addEventListener('keydown', event => {
+    if (event.target.closest('#accountSwitcherButton')) return;
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openCurrentUserDialog(); }
+  });
   $('#accountSwitcherButton').addEventListener('click', logoutCurrentUser);
-  $('#addTaskButton').addEventListener('click', () => openDailyFeedbackDialog(null, dailyDateKey));
   $('#logButton').addEventListener('click', openLogDialog);
   $('#photoInput').addEventListener('change', handlePhotoSelection);
   $('#morningBriefButton').addEventListener('click', createMorningBrief);
   $('#exportButton').addEventListener('click', exportData);
   $('#focusIssueButton').addEventListener('click', () => showToast('建议：联系监理提前 30 分钟到场，并将浇筑前检查并行开展'));
   $('#adoptInsightButton').addEventListener('click', event => { event.currentTarget.textContent = '✓ 已采纳，等待计划确认'; event.currentTarget.disabled = true; showToast('建议已加入明日计划草案'); });
-  $('#notificationButton').addEventListener('click', () => showToast(`${followups.filter(item => item.status !== 'done').length} 条协作或资料待办，另有 1 条验收提醒`));
+  $('#notificationButton').addEventListener('click', openTodoDialog);
   $('#projectButton').addEventListener('click', () => {
     if (serverMode) { openProjectSwitchDialog(); }
     else showToast(`当前项目：${currentProject.name}${currentProject.code ? `（${currentProject.code}）` : ''}`);
@@ -3281,11 +4128,20 @@ function initializeApp() {
   $$('[data-task-intake]').forEach(button => button.addEventListener('click', () => setTaskIntakeMode(button.dataset.taskIntake)));
   $$('[data-plan-mode]').forEach(button => button.addEventListener('click', () => setPlanMode(button.dataset.planMode)));
   $('#planForm select[name="level"]').addEventListener('change', () => { updatePlanParentField(); updatePlanFields(); });
-  $('#planForm input[name="start"]').addEventListener('change', () => updatePlanParentField($('#planForm').elements.parentId.value));
+  $('#planForm input[name="start"]').addEventListener('change', event => { $('#planForm').elements.end.value = event.target.value; updatePlanParentField($('#planForm').elements.parentId.value); });
   $('#taskImportInput').addEventListener('change', event => recognizeTaskFiles([...event.target.files]));
-  $('#planImportInput').addEventListener('change', event => { if (event.target.files[0]) recognizePlanFile(event.target.files[0]); });
-  $('#addPlanSubtaskButton').addEventListener('click', () => addPlanSubtask());
-  $('#planAttachmentInput').addEventListener('change', async event => {
+  $('#planImportInput')?.addEventListener('change', event => { if (event.target.files[0]) recognizePlanFile(event.target.files[0]); });
+  $('#addPlanSubtaskButton')?.addEventListener('click', () => addPlanSubtask());
+  $('#addPlanDayRowButton').addEventListener('click', () => addPlanDayRow());
+  $('#cancelEditingPlanButton').addEventListener('click', () => {
+    if (!editingPlanId) return;
+    const removed = removeDailyPlanById(editingPlanId);
+    if (removed) { persistPlans(); persistTasks(); persistDailyExecution(); }
+    editingPlanId = null; planDayRowsDraft = []; $('#planDialog').close();
+    if ($('#schedule').classList.contains('active')) renderSubview('schedule');
+    showToast(removed ? '日计划已撤销，关联执行任务也已移除' : '日计划不存在或已撤销');
+  });
+  $('#planAttachmentInput')?.addEventListener('change', async event => {
     const files = [...event.target.files];
     event.target.value = '';
     if (!files.length) return;
@@ -3293,16 +4149,73 @@ function initializeApp() {
     planAttachmentsDraft.push(...attachments);
     renderPlanAttachmentList();
   });
+  $('#masterPlanFileInput').addEventListener('change', async event => {
+    const file = event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+    const [attachment] = await prepareResourceAttachments([file]);
+    if (!attachment) { showToast('总计划文件上传失败，请重试'); return; }
+    const existing = plans.find(plan => plan.level === 'master');
+    if (existing) existing.attachments = [attachment];
+    else plans.unshift({ id: Date.now(), level: 'master', title: `${currentProject.name}总进度计划`, start: `${activeScheduleYear}-01-01`, end: `${activeScheduleYear}-12-31`, ownerRole: '项目经理', source: '批准版总计划', attachments: [attachment] });
+    persistPlans();
+    if ($('#schedule').classList.contains('active')) renderSubview('schedule');
+    showToast('总进度计划文件已更新');
+  });
+  $('#periodPlanFileInput').addEventListener('change', async event => {
+    const file = event.target.files[0];
+    event.target.value = '';
+    const context = pendingPeriodPlanUpload;
+    pendingPeriodPlanUpload = null;
+    if (!file || !context) return;
+    const [attachment] = await prepareResourceAttachments([file]);
+    if (!attachment) { showToast('计划文件上传失败，请重试'); return; }
+    const existing = plans.find(plan => plan.level === context.level && plan.isScheduleFile && plan.start === context.start && plan.end === context.end);
+    if (existing) Object.assign(existing, { title: context.title, fileHistory: [...(existing.fileHistory||[]),...(existing.attachments||[])], attachments: [attachment], compiler: currentOperatorLabel(), updatedAt: new Date().toISOString() });
+    else plans.push({ id: Date.now(), level: context.level, isScheduleFile: true, title: context.title, start: context.start, end: context.end, compiler: currentOperatorLabel(), ownerRole: context.level === 'month' ? '生产经理' : '施工管理人员', source: '上传计划原文件', attachments: [attachment] });
+    persistPlans();
+    if ($('#schedule').classList.contains('active')) renderSubview('schedule');
+    showToast(`${context.title}已上传并直接显示`);
+    if(context.level==='month'&&(window.ZhuxuServer?.active||/\.(csv|xlsx)$/i.test(file.name))){
+      const source=existing||plans.at(-1);
+      // The original is persisted before any recognition work begins.
+      if(window.ZhuxuServer?.active)try{await window.ZhuxuServer.saveState('zhuxu-plans',plans);}catch(error){showToast(`原文件已保留，服务器未保存完成：${error.message}`);return;}
+      await recognizeScheduleFiles([source],file);
+    }
+  });
+  $('#weatherArchiveButton').addEventListener('click', openWeatherArchive);
+  $$('[data-weather-setting]', $('#weatherArchiveDialog')).forEach(button => button.addEventListener('click', () => { $('#weatherArchiveDialog').close(); openWeatherSetting(); }));
+  $$('[data-weather-milestone]', $('#weatherArchiveDialog')).forEach(button => button.addEventListener('click', () => { const form = $('#weatherMilestoneForm'); form.reset(); form.elements.date.value = dailyDateKey; $('#weatherMilestoneDialog').showModal(); }));
+  $('#weatherMilestoneForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    weatherMilestones.push({ id: Date.now(), title: String(data.get('title') || '').trim(), date: data.get('date'), type: data.get('type'), note: String(data.get('note') || '').trim() });
+    persistWeatherMilestones();
+    $('#weatherMilestoneDialog').close();
+    if ($('#weatherArchiveDialog').open) { renderWeatherArchiveBody(); refreshWeatherTable(); }
+    showToast('重要事件已标注到晴雨表');
+  });
+  $('#deleteWeatherMilestone').addEventListener('click', () => {
+    weatherMilestones = weatherMilestones.filter(item => Number(item.id) !== Number(activeWeatherMilestoneId));
+    persistWeatherMilestones();
+    $('#weatherMilestoneDetailDialog').close();
+    if ($('#weatherArchiveDialog').open) { renderWeatherArchiveBody(); refreshWeatherTable(); }
+    showToast('重要事件已删除');
+  });
   attachDropzoneHandlers();
   enhanceNativeFileUploads();
   $('#resourcePlanForm select[name="type"]').addEventListener('change', event => { populateResourcePlanRoles(event.target.value); updateResourcePlanMaterialFields(); });
+  $('#resourcePlanOwner').addEventListener('change', event => {
+    const person = organization.find(item => organizationPersonLabel(item) === event.target.value);
+    $('#resourcePlanOwnerRole').value = person?.role || '';
+  });
   $('#resourcePlanForm select[name="contractBrandRequired"]').addEventListener('change', updateResourcePlanMaterialFields);
   $('#concealedAcceptanceForm select[name="status"]').addEventListener('change', updateConcealedGateHint);
-  ['name', 'location'].forEach(field => $('#resourceEntryForm').elements[field].addEventListener('input', updateResourcePlanRecommendation));
-  $('#resourcePlanMatch').addEventListener('change', event => {
-    event.target.dataset.manual = event.target.value ? 'true' : 'false';
-    const plan = resourcePlans.find(item => String(item.id) === event.target.value);
-    $('#resourcePlanMatchHint').textContent = plan ? `已手动关联：${plan.name}（${plan.location}）` : '已恢复系统自动匹配';
+  $('[data-add-resource-entry-row]')?.addEventListener('click', () => {
+    captureResourceEntryBatchDraft();
+    const type = $('#resourceEntryForm').elements.resourceType.value || 'material';
+    resourceEntryBatchDraft.push({ type, category: resourceEntryCategories(type)[0], movement: type === 'material' ? '进场' : '进场', arrivalTime: defaultDueValue() });
+    renderResourceEntryBatchRows();
   });
   $('#gateChainSelect').addEventListener('change', event => { pendingTaskTransition = null; openDocumentGate(null, event.target.value); });
   $('#gateMaterialEntry').addEventListener('change', event => {
@@ -3345,12 +4258,27 @@ function initializeApp() {
     const form = event.currentTarget; const data = new FormData(form); const submit = form.querySelector('[type="submit"]');
     submit.disabled = true; submit.textContent = '保存中…';
     try {
-      const files = await prepareResourceAttachments([...form.elements.files.files]);
+      const newFiles = await prepareResourceAttachments([...form.elements.files.files]);
+      const files = [...technicalFilesDraft, ...newFiles];
       const profession = data.get('type') === 'drawing' ? (data.get('profession') || detectProfession(`${data.get('title')} ${data.get('building')} ${data.get('scope')}`)) : '';
-      technicalDocuments.unshift({ id: Date.now(), type: data.get('type'), code: data.get('code'), title: data.get('title'), building: data.get('building'), profession, issuedBy: data.get('issuedBy'), issuedAt: data.get('issuedAt'), scope: data.get('scope'), content: data.get('content'), files, status: 'valid', createdAt: new Date().toISOString(), createdBy: currentOperatorLabel() });
+      const payload = { type: data.get('type'), code: data.get('code'), title: data.get('title'), building: data.get('building'), profession, issuedBy: data.get('issuedBy'), issuedAt: data.get('issuedAt'), scope: data.get('scope'), content: data.get('content'), files, status: 'valid', updatedAt: new Date().toISOString(), updatedBy: currentOperatorLabel() };
+      let savedDocument;
+      if (editingTechnicalDocumentId) {
+        technicalDocuments = technicalDocuments.map(item => Number(item.id) === Number(editingTechnicalDocumentId) ? (savedDocument = { ...item, ...payload }) : item);
+      } else {
+        savedDocument = { id: Date.now(), ...payload, createdAt: new Date().toISOString(), createdBy: currentOperatorLabel() };
+        technicalDocuments.unshift(savedDocument);
+      }
+      if (linkingTechnicalTaskId) {
+        const record = getDailyExecutionRecord(linkingTechnicalTaskId, linkingTechnicalTaskDate || activeExecutionDate);
+        record.technicalNotice = { documentId: savedDocument.id, type: technicalTypeLabels[savedDocument.type] || '技术文件', code: savedDocument.code, title: savedDocument.title, detail: savedDocument.content, issuedBy: savedDocument.issuedBy, issuedAt: `${savedDocument.issuedAt}T08:00:00+08:00`, requiredRoles: ['施工责任人', record.team || '责任班组'], acknowledgedBy: [], risk: true, hasAttachment: files.length > 0 };
+        persistDailyExecution();
+      }
       persistTechnicalDocuments(); form.reset(); $('#technicalDocumentDialog').close();
+      editingTechnicalDocumentId = null; technicalFilesDraft = []; linkingTechnicalTaskId = null; linkingTechnicalTaskDate = null;
       if ($('#technical').classList.contains('active')) renderSubview('technical');
-      showToast('技术文件已上传并向项目成员共享');
+      if ($('#intake').classList.contains('active')) renderSubview('intake');
+      showToast('技术文件已保存，并与相关施工任务同步');
     } finally { submit.disabled = false; submit.textContent = '保存技术文件'; }
   });
   $('#technicalDocumentForm select[name="type"]').addEventListener('change', event => { $('#professionField').hidden = event.target.value !== 'drawing'; });
@@ -3363,7 +4291,8 @@ function initializeApp() {
     const firstRel = files[0].webkitRelativePath || files[0].name;
     const firstSegments = firstRel.split('/').filter(Boolean);
     $('#drawingImportCount').textContent = files.length;
-    $('#drawingImportForm').elements.targetBuilding.value = (firstSegments[0] || '').trim();
+    const rootFolder = (firstSegments[0] || '').trim();
+    $('#drawingImportForm').elements.targetBuilding.value = rootFolder.match(/\d+#楼|地下室|室外工程|项目部/)?.[0] || rootFolder;
     $('#drawingImportError').textContent = '';
     $('#drawingImportDialog').showModal();
   });
@@ -3418,11 +4347,10 @@ function initializeApp() {
     submit.disabled = true; submit.textContent = '保存中…';
     try {
       const photos = await prepareResourceAttachments([...form.elements.photos.files]);
-      const record = { ...existing, taskId, dayPlanId: dayPlan?.id || existing.dayPlanId, weekPlanId: dayPlan?.parentId || existing.weekPlanId, date: dateKey, team: data.get('team'), plannedWorkers: Number(data.get('plannedWorkers')), actualWorkers: Number(data.get('actualWorkers')), progress: Number(data.get('progress')), actualQuantity: data.get('actualQuantity'), materialPercent: Number(data.get('materialPercent')), materialText: data.get('materialText'), documentDone: Number(data.get('documentDone')), documentTotal: Number(data.get('documentTotal')), documentText: data.get('documentText'), note: data.get('note'), confirmed: true, feedbackPhotos: [...(existing.feedbackPhotos || []), ...photos], feedbackAt: new Date().toISOString(), feedbackBy: currentOperatorLabel() };
+      const record = { ...existing, taskId, dayPlanId: dayPlan?.id || existing.dayPlanId, weekPlanId: dayPlan?.parentId || existing.weekPlanId, date: dateKey, team: data.get('team'), plannedWorkers: Number(data.get('plannedWorkers')), actualWorkers: Number(data.get('actualWorkers')), progress: existing.progress, actualQuantity: data.get('actualQuantity'), materialPercent: Number(data.get('materialPercent')), materialText: data.get('materialText'), documentDone: Number(data.get('documentDone')), documentTotal: Number(data.get('documentTotal')), documentText: data.get('documentText'), note: data.get('note'), confirmed: existing.confirmed === true, feedbackPhotos: [...(existing.feedbackPhotos || []), ...photos], feedbackAt: new Date().toISOString(), feedbackBy: currentOperatorLabel() };
       dailyExecution = dailyExecution.map(item => ((Number(item.taskId) === taskId && item.date === dateKey) || (record.dayPlanId && Number(item.dayPlanId) === Number(record.dayPlanId) && !item.taskId)) ? record : item);
       if (isToday) {
-        const status = data.get('status') === 'done' || record.progress >= 100 ? 'done' : data.get('status') === 'doing' || record.progress > 0 ? 'doing' : 'todo';
-        tasks = tasks.map(item => Number(item.id) === taskId ? { ...item, status, owner: data.get('owner') || item.owner } : item);
+        tasks = tasks.map(item => Number(item.id) === taskId ? { ...item, owner: data.get('owner') || item.owner } : item);
       }
       siteRecords.unshift({ id: Date.now(), type: '施工反馈', content: `${tasks.find(item => Number(item.id) === taskId)?.title || '施工任务'}：${record.actualQuantity}；${record.note}`, createdAt: new Date().toISOString(), photos, sourceTaskId: taskId });
       persistDailyExecution(); persistTasks(); persistSiteRecords();
@@ -3434,8 +4362,26 @@ function initializeApp() {
   $('#coordinationTaskSelect').addEventListener('change', event => { const task = tasks.find(item => Number(item.id) === Number(event.target.value)); if (task) $('#coordinationForm').elements.requester.value = getDailyExecutionRecord(task.id, dailyDateKey).team || currentOperatorLabel(); });
   $('#coordinationForm').addEventListener('submit', event => {
     event.preventDefault(); const form = event.currentTarget; const data = new FormData(form);
-    dailyCoordination.unshift({ id: Date.now(), taskId: Number(data.get('taskId')), category: data.get('category'), content: data.get('content'), requester: data.get('requester'), owner: data.get('owner'), due: data.get('due'), status: 'pending', createdAt: new Date().toISOString() });
+    dailyCoordination.unshift({ id: Date.now(), taskId: Number(data.get('taskId')), category: data.get('category'), content: data.get('content'), requester: data.get('requester'), foreman: data.get('foreman'), owner: data.get('owner'), due: data.get('due'), status: 'pending', createdAt: new Date().toISOString() });
     persistDailyCoordination(); form.reset(); $('#coordinationDialog').close(); if ($('#intake').classList.contains('active')) renderSubview('intake'); showToast('明日协调问题已提交并进入跟踪');
+  });
+  $('#dailyMeetingForm').addEventListener('submit', event => {
+    event.preventDefault();
+    const tomorrow = shiftDateKey(dailyMeetingDate || dailyDateKey, 1);
+    const planRows = dailyMeetingPlanDraft.filter(row => String(row.title || '').trim());
+    const coordinationRows = dailyMeetingCoordinationDraft.filter(row => String(row.content || '').trim());
+    if (!planRows.length) { showToast('请至少填写一项明日计划'); return; }
+    if (dailyExecution.some(record => record.date === tomorrow && ZhuxuMeetingRules.locked(record))) { showToast('该日已有例会确认记录，不能重新编制计划'); return; }
+    // Today's completion is only committed by the explicit per-item confirmation.
+    let result;
+    try { result = syncDailyPlansFromMeeting(tomorrow, planRows); }
+    catch (error) { showToast(error.message); return; }
+    syncDailyCoordinationFromMeeting(tomorrow, coordinationRows, result.taskIdMap);
+    persistPlans(); persistTasks(); persistDailyExecution(); persistDailyCoordination();
+    $('#dailyMeetingDialog').close();
+    if ($('#schedule').classList.contains('active')) renderSubview('schedule');
+    if ($('#intake').classList.contains('active')) renderSubview('intake');
+    showToast(`${formatDayLabel(tomorrow)}计划和协调事项已同步`);
   });
   $('#acknowledgeTechnicalNotice').addEventListener('click', () => {
     const taskId = Number($('#technicalNoticeTaskId').value); const record = getDailyExecutionRecord(taskId, dailyDateKey); const operator = currentOperatorLabel();
@@ -3689,7 +4635,9 @@ function initializeApp() {
       return match ? { ...worker, matched: true, laborerId: match.id } : { ...worker, matched: false };
     });
     const matchedCount = workers.filter(worker => worker.matched).length;
-    attendanceRecords.unshift({ id: Date.now(), date: data.get('date'), registeredAt: new Date().toISOString(), actual: Number(data.get('actual')), planned: Number(data.get('planned')), officer: data.get('officer'), note: data.get('note'), supplements: [], attachment, workers });
+    const hasCheckInColumn = workers.some(worker => worker.checkIn);
+    const recognizedActual = workers.filter(worker => !/(缺勤|未打卡|请假|离场)/.test(worker.status || '') && (!hasCheckInColumn || worker.checkIn)).length;
+    attendanceRecords.unshift({ id: Date.now(), date: data.get('date'), registeredAt: new Date().toISOString(), actual: recognizedActual || Number(data.get('actual')), planned: Number(data.get('planned')), officer: data.get('officer'), note: data.get('note'), supplements: [], attachment, workers, attendanceParseVersion: workers.length ? ATTENDANCE_PARSE_VERSION : 0 });
     attendanceRecords.sort((a,b) => b.date.localeCompare(a.date)); persistAttendance(); form.reset(); $('#attendanceDialog').close();
     if ($('#laborers').classList.contains('active')) renderSubview('laborers');
     if ($('#team').classList.contains('active')) renderSubview('team');
@@ -3730,9 +4678,9 @@ function initializeApp() {
     event.preventDefault();
     const form = event.currentTarget; const data = new FormData(form);
     weatherConfig = { city: String(data.get('city') || '').trim(), latitude: Number(data.get('latitude')), longitude: Number(data.get('longitude')) };
-    weatherData = null; localStorage.removeItem('zhuxu-weather');
+    weatherData = null; weatherArchive = {}; localStorage.removeItem('zhuxu-weather'); localStorage.removeItem('zhuxu-weather-archive');
     persistWeatherConfig(); $('#weatherSettingDialog').close();
-    if ($('#schedule').classList.contains('active')) renderSubview('schedule');
+    openWeatherArchive();
     showToast('晴雨表地点已更新，正在刷新天气');
   });
   $('#laborerForm').addEventListener('submit', event => {
@@ -3750,58 +4698,52 @@ function initializeApp() {
   $('#planForm').addEventListener('submit', event => {
     event.preventDefault();
     const form = event.currentTarget; const data = new FormData(form);
+    const rows = planDayRowsDraft.map(row => ({ id: row.id || null, title: String(row.title || '').trim(), dailyTarget: Math.max(0, Math.min(100, Number(row.dailyTarget ?? 100))), owners: String(row.owners || '').split(/[、,，]/).map(item => item.trim()).filter(Boolean), team: String(row.team || '').trim() })).filter(row => row.title);
+    if (!rows.length && !editingPlanId) { showToast('请至少填写一项当天施工内容'); return; }
+    if (editingPlanId && !rows.length) {
+      const removed = removeDailyPlanById(editingPlanId);
+      if (removed) { persistPlans(); persistTasks(); persistDailyExecution(); }
+      editingPlanId = null; planDayRowsDraft = []; form.reset(); $('#planDialog').close();
+      if ($('#schedule').classList.contains('active')) renderSubview('schedule');
+      showToast(removed ? '日计划已撤销，关联执行任务也已移除' : '日计划不存在或已撤销');
+      return;
+    }
     planUndoStack.push(plans.map(plan => ({ ...plan, attachments: [...(plan.attachments || [])] })));
     if (planUndoStack.length > 10) planUndoStack.shift();
-    const level = data.get('level');
     const start = data.get('start');
     const explicitParentId = Number(data.get('parentId')) || null;
-    const inferredParent = level === 'day' ? plans.find(plan => plan.level === 'week' && plan.start <= start && plan.end >= start && (!explicitParentId || Number(plan.id) === explicitParentId)) : null;
-    const owners = level === 'day' || level === 'week' ? String(data.get('owners') || '').split(/[、,，]/).map(item => item.trim()).filter(Boolean) : [];
-    const team = level === 'day' || level === 'week' ? String(data.get('team') || '').trim() : '';
-    const dailyTarget = level === 'day' ? Math.max(0, Math.min(100, Number(data.get('dailyTarget') || 100))) : null;
-    const base = { level, ownerRole: data.get('ownerRole'), owners, team, dailyTarget, start, end: level === 'day' ? start : data.get('end'), parentId: level === 'day' ? (explicitParentId || inferredParent?.id || null) : null, attachments: [...planAttachmentsDraft], subTasks: planSubtasksDraft.map(subtask => ({ title: String(subtask.title || '').trim(), owner: String(subtask.owner || '').trim(), team: String(subtask.team || '').trim() })).filter(subtask => subtask.title) };
-    const attachDayTask = plan => {
-      if (plan.level !== 'day') return plan;
-      const specs = (plan.subTasks || []).filter(subtask => subtask.title).length
-        ? plan.subTasks.filter(subtask => subtask.title)
-        : [{ title: plan.title, owner: planOwners(plan)[0] || resolveOrganizationOwner(plan.ownerRole), team: plan.team || '' }];
+    const inferredParent = plans.find(plan => plan.level === 'week' && !plan.isScheduleFile && plan.start <= start && plan.end >= start && (explicitParentId && Number(plan.id) === explicitParentId));
+    const parentId = explicitParentId || inferredParent?.id || null;
+    const attachDayTask = (plan, taskSeed) => {
       const defaultOwner = planOwners(plan)[0] || resolveOrganizationOwner(plan.ownerRole);
       const legacyTaskId = Number(plan.taskId);
       tasks = tasks.filter(task => !(Number(task.dayPlanId) === Number(plan.id)) && !(legacyTaskId && Number(task.id) === legacyTaskId));
-      const baseId = Date.now();
-      const taskIds = [];
-      specs.forEach((spec, index) => {
-        const task = {
-          id: baseId + index,
-          dayPlanId: plan.id,
-          title: spec.title,
-          zone: '计划指定区域',
-          owner: spec.owner || defaultOwner,
-          creator: currentOperatorLabel(),
-          taskType: '施工任务',
-          time: '17:00',
-          status: 'todo',
-          priority: 'normal',
-          criteria: `来源：日进度计划 #${plan.id}`,
-          team: spec.team || plan.team || ''
-        };
-        tasks.unshift(task);
-        taskIds.push(task.id);
-      });
-      plan.taskId = taskIds[0] || null;
-      plan.taskIds = taskIds;
+      const task = { id: taskSeed, dayPlanId: plan.id, title: plan.title, zone: '计划指定区域', owner: defaultOwner, creator: currentOperatorLabel(), taskType: '施工任务', time: '17:00', status: 'todo', priority: 'normal', criteria: `来源：日进度计划 #${plan.id}`, team: plan.team || '' };
+      tasks.unshift(task);
+      plan.taskId = task.id;
+      plan.taskIds = [task.id];
       return plan;
     };
+    const planSeed = Date.now();
+    const makePlan = (row, id, source) => {
+      const ownerRole = row.owners[0]?.split('·').slice(-1)[0]?.trim() || '施工管理人员';
+      const previous = plans.find(plan => Number(plan.id) === Number(id));
+      return attachDayTask({ id, level: 'day', title: row.title, ownerRole, owners: row.owners, team: row.team, dailyTarget: row.dailyTarget, start, end: start, parentId, attachments: previous?.attachments || [], subTasks: [], source }, planSeed + 1000 + id % 1000);
+    };
     if (editingPlanId) {
-      plans = plans.map(plan => plan.id === editingPlanId ? attachDayTask({ ...plan, ...base, title: data.get('title'), source: '人工更新' }) : plan);
-    } else if (planRecognitionCandidates.length) {
-      planRecognitionCandidates.forEach((candidate, index) => plans.push(attachDayTask({ id: Date.now() + index, ...base, title: candidate.title, start: candidate.start || base.start, end: level === 'day' ? (candidate.start || base.start) : (candidate.end || base.end), source: '文件识别 · 已校对' })));
+      const existing = plans.find(plan => Number(plan.id) === Number(editingPlanId));
+      const submittedExistingIds = new Set(rows.map(row => Number(row.id)).filter(Boolean));
+      if (existing && !submittedExistingIds.has(Number(editingPlanId))) removeDailyPlanById(editingPlanId);
+      const primary = makePlan(rows[0], editingPlanId, '批量编辑日计划');
+      plans = plans.map(plan => Number(plan.id) === Number(editingPlanId) ? { ...plan, ...primary } : plan);
+      rows.slice(1).forEach((row, index) => plans.push(makePlan(row, planSeed + index + 1, '批量新增日计划')));
+      if (!plans.some(plan => Number(plan.id) === Number(editingPlanId))) plans.push(primary);
     } else {
-      plans.push(attachDayTask({ id: Date.now(), ...base, title: data.get('title'), source: '手工新建' }));
+      rows.forEach((row, index) => plans.push(makePlan(row, planSeed + index, '批量新增日计划')));
     }
-    activePlanLevel = level; persistPlans(); persistTasks(); editingPlanId = null; planRecognitionCandidates = []; planAttachmentsDraft = []; planSubtasksDraft = []; form.reset(); $('#planDialog').close();
+    activePlanLevel = 'day'; persistPlans(); persistTasks(); editingPlanId = null; planRecognitionCandidates = []; planAttachmentsDraft = []; planSubtasksDraft = []; planDayRowsDraft = []; form.reset(); $('#planDialog').close();
     if ($('#schedule').classList.contains('active')) renderSubview('schedule');
-    showToast('计划已更新并写入对应计划层级');
+    showToast(`${rows.length} 项日计划已一次保存，并同步生成每日执行任务`);
   });
   $('#taskForm').addEventListener('submit', event => {
     event.preventDefault(); const form = event.currentTarget; const data = new FormData(form);
@@ -3833,13 +4775,14 @@ function initializeApp() {
     const approvalWorkflow = approvalOwners.map(([role, owner]) => {
       const previous = existing?.approvalWorkflow?.find(step => step.role === role && step.owner === owner);
       const ownerId = organization.find(person => `${person.name} · ${person.role}` === owner)?.id || '';
+      if (role === '提报人') return { ...(previous || {}), role, owner, ownerId, status: 'approved', actedAt: previous?.actedAt || existing?.createdAt || new Date().toISOString(), actedBy: previous?.actedBy || owner, actedByAccount: previous?.actedByAccount || '' };
       return previous?.status === 'approved' ? { ...previous, ownerId } : { role, owner, ownerId, status: 'pending' };
     });
     const planData = {
-      type, name: data.get('name'), quantity: data.get('quantity'), due: data.get('due'), location: data.get('location'), ownerRole: data.get('ownerRole'),
+      type, name: data.get('name'), quantity: data.get('quantity'), due: data.get('due'), location: data.get('location'), owner: data.get('owner'), ownerRole: data.get('ownerRole'),
       requester: type === 'material' ? data.get('requester') : '', purchaser: type === 'material' ? data.get('purchaser') : '',
       contractBrandRequired: type === 'material' && data.get('contractBrandRequired') === 'yes', contractBrand: type === 'material' ? String(data.get('contractBrand') || '').trim() : '',
-      approvalAttachments: type === 'material' ? [...(existing?.approvalAttachments || []), ...newApprovalFiles] : [], approvalWorkflow,
+      approvalAttachments: type === 'material' ? [...(existing?.approvalAttachments || []), ...newApprovalFiles] : [], approvalWorkflow: markRequesterApproval(approvalWorkflow, existing || {}),
       updatedAt: new Date().toISOString()
     };
     if (existing) resourcePlans = resourcePlans.map(plan => Number(plan.id) === Number(existing.id) ? { ...plan, ...planData } : plan);
@@ -3872,25 +4815,96 @@ function initializeApp() {
     showToast(record.status === 'qualified' ? `隐蔽验收已合格，${record.linkedProcess}已放行` : `隐蔽验收已保存，${record.linkedProcess}保持待放行`);
   });
   $('#resourceEntryForm').addEventListener('submit', async event => {
-    event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); const submit = form.querySelector('[type="submit"]');
-    submit.disabled = true; submit.textContent = '保存中…';
-    const attachments = await prepareResourceAttachments([...form.elements.certificates.files, ...form.elements.photos.files]);
-    const entry = { id: Date.now(), type: data.get('resourceType'), name: data.get('name'), category: data.get('category'), brand: data.get('brand'), spec: data.get('spec'), movement: data.get('movement'), arrivalTime: data.get('arrivalTime'), quantity: data.get('quantity'), location: data.get('location'), note: data.get('note'), attachments };
-    const selectedPlanId = Number(data.get('planId'));
-    const linkedPlan = selectedPlanId ? resourcePlans.find(plan => Number(plan.id) === selectedPlanId) : findBestResourcePlan(entry);
-    if (linkedPlan && entry.movement === '进场') entry.planId = linkedPlan.id;
-    resourceEntries.unshift(entry);
-    if (entry.type === 'material' && entry.movement === '进场') { ensureMaterialDocumentChain(entry); persistDocumentState(); }
-    reconcileResourcePlans();
-    try { persistResources(); } catch (error) { entry.attachments = attachments.map(item => ({ name: item.name, type: item.type, stored: false })); persistResources(); showToast('附件较大，已保存登记信息和附件名称'); }
-    if (entry.type === 'material' && entry.movement === '进场') {
-      const clerk = organization.find(person => person.role === '资料员');
-      followups.unshift({ id: Date.now() + 1, category: '资料待办', title: `确认${entry.name}是否需要取样送检并留存合格证`, requester: '系统 · 材料进场联动', owner: `${clerk.name} · ${clerk.role}`, zone: entry.location, due: defaultDueValue(), urgency: /钢材|水泥|防水/.test(entry.category) ? 'urgent' : 'normal', relatedTask: `${entry.name} ${entry.movement}登记`, note: `品牌：${entry.brand}；规格：${entry.spec}；附件 ${attachments.length} 个。请确认送检与归档要求。`, status: 'pending', reminders: 1 });
-      persistFollowups();
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submit = form.querySelector('[type="submit"]');
+    const type = form.elements.resourceType.value || 'material';
+    const rows = $$('#resourceEntryBatchRows [data-resource-entry-row]');
+    if (!rows.length) { showToast('请至少添加一条到场记录'); return; }
+    submit.disabled = true;
+    submit.textContent = '批量保存中…';
+    const previousEntries = resourceEntries;
+    let batchSaved = false;
+    try {
+      const entries = [];
+      for (const [index, row] of rows.entries()) {
+        const receiptFiles = [...($('[data-resource-entry-receipt]', row)?.files || [])];
+        const certificateFiles = [...($('[data-resource-entry-certificates]', row)?.files || [])];
+        const photoFiles = [...($('[data-resource-entry-photos]', row)?.files || [])];
+        const movement = $('[data-resource-entry-movement]', row).value;
+        if (type === 'material' && movement === '进场' && (!receiptFiles.length || !photoFiles.length)) {
+          showToast(`第 ${index + 1} 条材料必须上传收货单和到场/验收照片`);
+          return;
+        }
+        if (photoFiles.some(file => !file.type.startsWith('image/'))) { showToast(`第 ${index + 1} 条请上传真实的到场或验收照片`); return; }
+        const [receiptAttachments, documentAttachments, photoAttachments] = await Promise.all([
+          prepareMaterialProofAttachments(receiptFiles),
+          prepareMaterialProofAttachments(certificateFiles),
+          prepareMaterialProofAttachments(photoFiles)
+        ]);
+        const attachments = [...receiptAttachments, ...photoAttachments, ...documentAttachments];
+        const entry = {
+          id: Date.now() + index,
+          type,
+          name: $('[data-resource-entry-name]', row).value.trim(),
+          category: $('[data-resource-entry-category]', row).value,
+          brand: $('[data-resource-entry-brand]', row).value.trim(),
+          spec: $('[data-resource-entry-spec]', row).value.trim(),
+          movement,
+          arrivalTime: $('[data-resource-entry-arrival]', row).value,
+          quantity: $('[data-resource-entry-quantity]', row).value.trim(),
+          location: $('[data-resource-entry-location]', row).value.trim(),
+          note: $('[data-resource-entry-note]', row).value.trim(),
+          receiptAttachments,
+          photoAttachments,
+          documentAttachments,
+          attachments
+        };
+        const selectedPlanId = Number($('[data-resource-entry-plan]', row).value);
+        const linkedPlan = selectedPlanId ? resourcePlans.find(plan => Number(plan.id) === selectedPlanId) : findBestResourcePlan(entry);
+        if (linkedPlan && entry.movement === '进场') entry.planId = linkedPlan.id;
+        entries.push(entry);
+      }
+      if (entries.some(entry => !entry.name || !entry.brand || !entry.spec || !entry.quantity || !entry.location || !entry.arrivalTime)) {
+        showToast('请完整填写每条材料或设备到场记录');
+        return;
+      }
+      resourceEntries = [...entries.slice().reverse(), ...resourceEntries];
+      persistMaterialEntries();
+      batchSaved = true;
+      const materialEntries = entries.filter(entry => entry.type === 'material' && entry.movement === '进场');
+      materialEntries.forEach(entry => ensureMaterialDocumentChain(entry));
+      if (materialEntries.length) persistDocumentState();
+      reconcileResourcePlans();
+      persistResources();
+      if (materialEntries.length) {
+        const clerk = matchPersonByRole('资料员');
+        materialEntries.forEach((entry, index) => {
+          if (!clerk) return;
+          upsertMaterialReviewFollowup(entry, clerk, `核查${entry.name}进场资料是否齐全`, `请核查收货单、到场照片、合格证及其他资料，并确认取样送检要求。当前附件 ${(entry.attachments || []).length} 个。`, index + 1);
+        });
+        persistFollowups();
+      }
+      form.reset();
+      resourceEntryBatchDraft = [];
+      $('#resourceEntryDialog').close();
+      activeResourceTab = type === 'material' ? 'materials' : 'equipment';
+      if ($('#materials').classList.contains('active')) renderSubview('materials');
+      const planCount = entries.filter(entry => entry.planId).length;
+      const planMessage = planCount ? `，其中 ${planCount} 条已关联到场计划` : '';
+      showToast(`${entries.length} 条${type === 'material' ? '材料进场' : '设备进出场'}记录已保存${planMessage}`);
+    } catch (error) {
+      if (!batchSaved) resourceEntries = previousEntries;
+      else { $('#resourceEntryDialog').close(); if ($('#materials').classList.contains('active')) renderSubview('materials'); }
+      showToast(batchSaved ? '台账和附件已保存，部分联动未完成；请从台账查看，勿重复登记' : `登记未完成，已保留表单和原附件：${error.message || '请重试'}`);
+    } finally {
+      submit.disabled = false;
+      submit.textContent = '保存登记';
     }
-    form.reset(); $('#resourceEntryDialog').close(); activeResourceTab = entry.type === 'material' ? 'materials' : 'equipment'; if ($('#materials').classList.contains('active')) renderSubview('materials'); submit.disabled = false; submit.textContent = '保存登记';
-    const planMessage = linkedPlan ? `，已计入“${linkedPlan.name}”到场进度` : '';
-    showToast(entry.type === 'material' ? `材料进场已登记${planMessage}，并生成资料员待办` : `设备进出场已登记${planMessage}`);
+  });
+  $('#materialDocumentReviewForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    await saveMaterialDocumentReview(event.currentTarget);
   });
   $('#followupForm').addEventListener('submit', event => {
     event.preventDefault();

@@ -227,7 +227,8 @@ async function apiPutRaw(page, path, body) {
 
   // —— 施工图：单体文件夹内按专业分组与过滤 ——
   await pm.locator('.technical-building-folders [data-technical-building="3#楼"]').click();
-  if (await pm.locator('.technical-profession-tabs button').count() < 3) throw new Error('Profession tabs missing inside building folder');
+  if (await pm.locator('.technical-building-folders [data-technical-profession]').count() < 1) throw new Error('Profession subfolders missing inside building folder');
+  if (await pm.locator('.technical-profession-tabs button').count()) throw new Error('Legacy profession tabs should be removed');
   await pm.locator('[data-technical-profession="结构"]').click();
   if (!(await pm.locator('#technical').getByText('3#楼 8F 梁配筋图').first().isVisible())) throw new Error('Structural drawing not shown in structural filter');
   if (await pm.locator('#technical').getByText('首层平面图').count()) throw new Error('Drawing from another building leaked into filter');

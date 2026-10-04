@@ -13,3 +13,5 @@ backups/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+zhuxu-source-*.zip
+_inspect_ui.js

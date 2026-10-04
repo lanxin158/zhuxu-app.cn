@@ -14,7 +14,9 @@
     "test:offline": "node _test_app.js",
     "test:features": "node _test_new_features.js",
     "test:intake": "node _test_intake.js",
-    "test:lan": "node _test_all.js --lan-only"
+    "test:lan": "node _test_all.js --lan-only",
+    "test:schedule": "node _test_schedule_links.js && node _test_meeting_rules.js",
+    "test:schedule-recognition": "node _test_schedule_recognition.js && node _test_schedule_recognition_flow.js"
   },
   "devDependencies": {
     "jszip": "3.10.1",
